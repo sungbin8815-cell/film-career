@@ -3,7 +3,7 @@
 //   register(id, { title, run(root, params, ctx) })
 //     root   : 미니게임이 마음대로 그려도 되는 DOM 요소
 //     params : 이벤트 데이터의 minigame.params (예: { enemy: 'actor' })
-//     ctx    : { stat(id), career, rankName, art(key) }  — 본 게임 정보 읽기 전용
+//     ctx    : { state, art(key) }  — 본 게임 상태(읽기 전용)와 그림 헬퍼
 //     반환   : Promise<{ outcome: 'win' | 'lose' | 'flee' | (임의 문자열), summary?: string }>
 //
 // 엔진은 outcome에 맞는 이벤트 데이터의 minigame.results[outcome]을 적용합니다.
