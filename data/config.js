@@ -37,7 +37,10 @@ export default {
   startBag: 2,
 
   // 지도 칸 비중: 시뮬레이션(사건) 중심. fight = 1대다수 액션, elite·boss = 1대1 턴제
-  nodeWeights: { event: 44, fight: 26, elite: 9, rest: 12, shop: 9 },
+  nodeWeights: { event: 42, fight: 22, brawl: 10, elite: 8, rest: 10, shop: 8 },
+
+  // 1대1 격투(맞짱): 사람 적과 붙을 때. 피해 배율은 기본기·최강 스킬 기준
+  brawl: { foeHp: 1.3, bossHp: 0.95, punchMul: 0.75, kickMul: 1.15, specialMul: 1.8, timeLimit: 45 },
 
   // 1대다수 액션 전투
   action: {

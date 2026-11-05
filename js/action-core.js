@@ -3,6 +3,7 @@ import D from '../data/index.js'
 import * as St from './state.js'
 import { scaledEnemy, moveList, previewPower } from './combat.js'
 import { pickOne } from './util.js'
+import SP from '../data/sprites.js'
 
 const A = D.config.action
 const CC = D.config.combat
@@ -18,7 +19,7 @@ export function buildAction(s, enemyId) {
     const src = i === 0 || Math.random() < 0.6 || !others.length ? main : pickOne(others)
     const e = scaledEnemy(s, src.id)
     const hp = Math.max(6, Math.round(e.max * A.mobHp))
-    mobs.push({ id: e.id, name: e.name, emoji: e.emoji, hp, max: hp, atk: Math.max(2, Math.round(e.atk * A.mobAtk)), def: e.def, weak: e.weak, resist: e.resist, speed: 1.1 + Math.random() * 0.9 })
+    mobs.push({ human: !!SP.enemies[e.id]?.human, id: e.id, name: e.name, emoji: e.emoji, hp, max: hp, atk: Math.max(2, Math.round(e.atk * A.mobAtk)), def: e.def, weak: e.weak, resist: e.resist, speed: 1.1 + Math.random() * 0.9 })
   }
   const moves = moveList(s).map((m) => ({
     id: m.id, name: m.name, emoji: m.emoji, type: m.type, route: m.route, mp: m.mp ?? 0, hits: m.hits ?? 1, turns: m.turns ?? 2, lv: m.lv,
@@ -31,7 +32,7 @@ export function buildAction(s, enemyId) {
   return {
     enemyId, name: main.name, emoji: main.emoji,
     mobs,
-    player: { hp: s.hp, maxHp: St.maxHp(s), mp: s.mp, maxMp: St.maxMp(s), def: St.defense(s), emoji: St.jobOf(s).emoji,
+    player: { job: s.job, hp: s.hp, maxHp: St.maxHp(s), mp: s.mp, maxMp: St.maxMp(s), def: St.defense(s), emoji: St.jobOf(s).emoji,
       crit: (CC.critBase + St.stat(s, 'sen') * CC.critPerSen) / 100, critMul: CC.critMul, weakMul: CC.weakMul, resistMul: CC.resistMul },
     moves, bag: s.bag?.bacchus ?? 0,
     potion: D.config.shop.potion, timeLimit: A.timeLimit, mpRegen: A.mpRegen,

@@ -6,6 +6,8 @@ import { test } from './conditions.js'
 import { applyEffects, gainExp, giveItem, learnSkill, rollItem } from './effects.js'
 import { startCombat, useSkill as combatUse, useBag as combatBag, flee as combatFlee } from './combat.js'
 import { buildAction } from './action-core.js'
+import { buildBrawl } from './brawl-core.js'
+import SP from '../data/sprites.js'
 import * as Save from './save.js'
 import { pickOne, weightedPick, randInt, asList } from './util.js'
 
@@ -128,6 +130,7 @@ export function chooseNode(i) {
   if (!kind) return
   if (kind === 'fight') return startFight(pickEnemy('normal'), 'fight')
   if (kind === 'elite') return startFight(pickEnemy('elite'), 'elite')
+  if (kind === 'brawl') return startFight(pickHuman(), 'brawl')
   if (kind === 'event') {
     const ev = pickEvent()
     if (ev) { S.seen[ev.id] = S.projectNo; return go({ type: 'event', id: ev.id }) }
@@ -138,14 +141,36 @@ export function chooseNode(i) {
 }
 
 // 일반 적 = 1대다수 액션, 강적·보스 = 1대1 턴제
+const isHuman = (id) => !!SP.enemies[id]?.human
+
+function pickHuman() {
+  const tier = St.stageTier(S)
+  const pool = D.enemies.filter((e) => isHuman(e.id) && e.tier <= tier)
+  return weightedPick(pool.map((e) => ({ id: e.id, weight: e.tier === tier ? 3 : 1 }))).id
+}
+
 function startFight(enemyId, source) {
   const e = St.getEnemy(enemyId)
+  if (source === 'brawl' || (source === 'event' && isHuman(enemyId))) {
+    S.brawlSetup = buildBrawl(S, enemyId)
+    return go({ type: 'brawl', enemyId, source })
+  }
   if (e.kind === 'normal') {
     S.actionSetup = buildAction(S, enemyId)
     return go({ type: 'action', enemyId, source })
   }
   startCombat(S, enemyId, { source })
   go({ type: 'combat' })
+}
+
+export function brawlDone(res) {
+  if (S.step.type !== 'brawl') return
+  const setup = S.brawlSetup
+  S.hp = res.hp
+  St.clampVitals(S)
+  S.combat = { enemy: { id: setup.enemyId, name: setup.name, emoji: '🥊', kind: setup.kind }, result: res.result, source: S.step.source, mode: 'brawl' }
+  S.brawlSetup = null
+  finishCombat()
 }
 
 export function actionDone(res) {
@@ -284,7 +309,7 @@ function finishCombat() {
   const af = St.getAffix(p?.affix)
   const notes = []
   const scale = 1 + 0.25 * S.projectNo
-  const groupMul = cb.mode === 'action' ? 0.3 * (cb.kills ?? 1) + 0.3 : 1
+  const groupMul = cb.mode === 'action' ? 0.3 * (cb.kills ?? 1) + 0.3 : cb.mode === 'brawl' && e.kind === 'boss' ? 0.65 : 1
   if (cb.result === 'flee') {
     notes.push({ text: '🏃 무사히 빠져나왔다', tone: '' })
   } else if (cb.result === 'win') {
@@ -292,15 +317,16 @@ function finishCombat() {
     const gold = Math.round(e.gold * groupMul * (1 + 0.15 * S.projectNo))
     S.money += gold
     notes.push({ text: `📈 경험치 +${exp}`, tone: 'good' }, { text: `💰 +${gold}만`, tone: 'good' })
-    if (p) { p.score += e.kind === 'boss' ? 3 : e.kind === 'elite' ? 2 : 1; p.wins += 1 }
-    const drop = e.kind === 'boss' ? (Math.random() < 0.5 ? 'epic' : 'rare') : e.kind === 'elite' ? 'rare' : Math.random() < 0.15 ? 'common' : null
+    const rank = cb.mode === 'brawl' ? 'elite' : e.kind
+    if (p) { p.score += rank === 'boss' ? 3 : rank === 'elite' ? 2 : 1; p.wins += 1 }
+    const drop = rank === 'boss' ? (Math.random() < 0.5 ? 'epic' : 'rare') : rank === 'elite' ? 'rare' : Math.random() < 0.15 ? 'common' : null
     if (drop) { const id = rollItem(S, drop); if (id) giveItem(S, id, notes) }
     // 이긴 방식도 성향으로 쌓임: 마지막에 쓴 스킬 속성
   } else {
     S.hp = Math.round(St.maxHp(S) * C.combat.lose.hp)
     const lost = Math.round(Math.max(0, S.money) * C.combat.lose.moneyPct)
     S.money -= lost
-    if (p) p.score -= e.kind === 'boss' ? 2 : 1
+    if (p) p.score -= e.kind === 'boss' && cb.mode !== 'brawl' ? 2 : 1
     notes.push({ text: '🩹 촬영 지연… 그래도 현장은 계속된다', tone: 'bad' }, { text: `💰 -${lost}만`, tone: 'bad' })
   }
   S.combat.done = true
@@ -445,4 +471,4 @@ function endRun() {
 
 // 디버그·시뮬레이터용
 export const _internal = { jobScore }
-export const debugFight = (enemyId) => startFight(enemyId, 'fight')
+export const debugFight = (enemyId, source = 'fight') => startFight(enemyId, source)

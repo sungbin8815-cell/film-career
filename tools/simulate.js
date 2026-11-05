@@ -5,6 +5,7 @@ import * as E from '../js/engine.js'
 import * as St from '../js/state.js'
 import { moveList } from '../js/combat.js'
 import { autoResolve } from '../js/action-core.js'
+import { autoResolve as brawlResolve } from '../js/brawl-core.js'
 import D from '../data/index.js'
 
 const N = Number(process.argv[2] ?? 300)
@@ -30,7 +31,7 @@ let step
 E.setListener((s) => { step = s })
 const endCount = {}
 const paths = new Set()
-let actionFights = 0, actionLoss = 0, turnFights = 0
+let actionFights = 0, actionLoss = 0, turnFights = 0, brawlFights = 0, brawlLoss = 0
 let taps = 0, fights = 0, losses = 0, turns = 0, levelSum = 0, finalSum = 0, bossLoss = 0, bosses = 0
 const jobAtProject = {}
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
@@ -57,6 +58,12 @@ for (let n = 0; n < N; n++) {
         const r = autoResolve(s.actionSetup)
         if (r.result === 'lose') actionLoss++
         E.actionDone(r); break
+      }
+      case 'brawl': {
+        fights++; brawlFights++
+        const r = brawlResolve(s.brawlSetup)
+        if (r.result === 'lose') brawlLoss++
+        E.brawlDone(r); break
       }
       case 'combat': {
         if (step.ended) { E.combatFinish(); break }
@@ -109,7 +116,7 @@ for (let n = 0; n < N; n++) {
 console.log(`\n=== ${N}판 (${POLICY}) ===`)
 console.log(`판당 터치 ${(taps / N).toFixed(0)}회 · 평균 최종 레벨 ${(levelSum / N).toFixed(1)} · 최종 전직 도달 ${(100 * finalSum / N).toFixed(0)}%`)
 console.log(`전투 ${(fights / N).toFixed(1)}회/판 · 패배율 ${(100 * losses / fights).toFixed(1)}% · 보스 패배율 ${(100 * bossLoss / bosses).toFixed(1)}% · 전투당 ${(turns / fights).toFixed(1)}턴`)
-console.log(`  액션(1대다수) ${(actionFights / N).toFixed(1)}회/판 · 패배율 ${(100 * actionLoss / Math.max(1, actionFights)).toFixed(1)}% · 턴제(1대1) ${(turnFights / N).toFixed(1)}회/판 · 턴제 전투당 ${(turns / Math.max(1, turnFights)).toFixed(1)}턴`)
+console.log(`  액션(1대다수) ${(actionFights / N).toFixed(1)}회/판 · 패배율 ${(100 * actionLoss / Math.max(1, actionFights)).toFixed(1)}% · 격투 ${(brawlFights / N).toFixed(1)}회/판 패배율 ${(100 * brawlLoss / Math.max(1, brawlFights)).toFixed(1)}% · 턴제(1대1) ${(turnFights / N).toFixed(1)}회/판 · 턴제 전투당 ${(turns / Math.max(1, turnFights)).toFixed(1)}턴`)
 console.log('작품 n개 후 평균 직업 단계:', Object.entries(jobAtProject).map(([k, v]) => `${k}:${(v / N).toFixed(1)}`).join(' '))
 console.log(`서로 다른 전직 경로: ${paths.size}가지`)
 console.log('\n최종 직업 분포:')

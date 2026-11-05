@@ -1,5 +1,6 @@
 /* 촬영현장 RPG — 픽셀 스타일. 도트 폰트를 쓰려면 fonts/에 넣고 아래 주석을 푸세요. */
-/* @font-face { font-family: 'PixelKR'; src: url('../fonts/Galmuri11.woff2') format('woff2'); font-display: swap; } */
+@font-face { font-family: 'Galmuri11'; src: url('../fonts/Galmuri11.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'Galmuri11'; font-weight: 700; src: url('../fonts/Galmuri11-Bold.woff2') format('woff2'); font-display: swap; }
 :root {
   --bg: #14121f; --panel: #221f33; --panel-2: #2d2944; --ink: #f4efe2; --muted: #a9a3bd; --line: #0a0912;
   --accent: #ffcc4d; --accent-ink: #2a1d00; --good: #7ee08a; --bad: #ff7a7a;
@@ -212,8 +213,44 @@ ul, ol { margin: 0; padding-left: 18px; }
 .abtn .cdv { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0, 0, 0, 0.55); pointer-events: none; }
 .act-intro { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; padding: 24px; text-align: center; background: rgba(10, 9, 18, 0.72); }
 .act-intro .btn { max-width: 220px; }
-.act-banner { position: absolute; top: 38%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; color: var(--accent); text-shadow: 3px 3px 0 #000; pointer-events: none; }
+.act-banner { position: absolute; top: 34%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; color: var(--accent); text-shadow: 3px 3px 0 #000; pointer-events: none; }
 .act-banner.lose { color: var(--bad); }
 .skrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .btn.mini.on { background: var(--accent); color: var(--accent-ink); }
 .pk-box .bar { flex: 1 1 auto; width: 100%; min-width: 60px; }
+
+/* ───── 도트 ───── */
+img.px { image-rendering: pixelated; image-rendering: crisp-edges; display: inline-block; vertical-align: middle; }
+img.px.flip { transform: scaleX(-1); }
+img.ico { margin-right: 3px; vertical-align: -3px; }
+.hud-top .portrait { width: 40px; height: 30px; object-fit: cover; object-position: top; background: var(--bg); border: 2px solid var(--line); }
+.hero-row { display: flex; justify-content: center; align-items: flex-end; gap: 6px; min-height: 120px; }
+.hero-px { display: flex; justify-content: center; }
+.hero-px img { filter: drop-shadow(3px 3px 0 #0008); }
+.jobcard { flex-direction: row !important; align-items: center !important; gap: 10px !important; }
+.jobcard .jtxt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.card.locked.jobl { flex-direction: row; align-items: center; gap: 10px; }
+.dex-card .dex-spr { height: 56px; display: flex; align-items: flex-end; }
+.node { flex-direction: row !important; align-items: center !important; gap: 12px !important; }
+.node .ntxt { display: flex; flex-direction: column; }
+.pk-foe-spr img, .pk-me-spr img { position: relative; filter: drop-shadow(2px 2px 0 #0006); }
+.pk-me-spr img { margin-bottom: 2px; }
+.classcard { flex-direction: row !important; align-items: center !important; gap: 10px !important; }
+.pathrow { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 13px; }
+.pstep { display: inline-flex; align-items: center; gap: 3px; }
+img.px.dim { opacity: 0.45; }
+
+/* ───── 격투 ───── */
+.br .act-stage { background: #2a2445; }
+.br-pad { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); background: var(--panel); border-top: var(--px) solid var(--line); }
+.br-l { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: 52px 44px; gap: 5px; }
+.br-l .b-left { grid-row: 1; grid-column: 1; } .br-l .b-jump { grid-row: 1; grid-column: 2; } .br-l .b-right { grid-row: 1; grid-column: 3; }
+.br-l .b-guard { grid-row: 2; grid-column: 1 / span 3; min-height: 44px; }
+.br-r { display: grid; grid-template-columns: repeat(2, 64px); grid-template-rows: 52px 44px; gap: 5px; }
+.br-r .b-special { grid-column: 1 / span 2; min-height: 44px; background: #1c3d5a; }
+.br-r .b-punch { background: #5a2a2a; } .br-r .b-kick { background: #5a3a1f; }
+.br .abtn { min-height: 44px; }
+.act-banner { opacity: 0; transition: opacity 0.2s; }
+.act-banner.show { opacity: 1; }
+.act-banner.sp { color: #74c0fc; }
+.jtxt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }

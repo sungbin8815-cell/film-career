@@ -2,16 +2,17 @@
 // runAction(root, setup, onDone) — 끝나면 onDone({ result, hp, mp, bag, kills, money })
 import { strike } from './action-core.js'
 import { h } from './dom.js'
+import { getSprite } from './pixel.js'
 
 const ARENA = { minX: -7, maxX: 7, minZ: 0, maxZ: 30 }
 const CAM = { back: 5.6, height: 3.3 }
 const PROPS = [
-  { x: -7.6, z: 4, e: '💡' }, { x: 7.6, z: 7, e: '🎥' }, { x: -7.6, z: 12, e: '🪑' }, { x: 7.6, z: 15, e: '💡' },
-  { x: -7.6, z: 20, e: '🚚' }, { x: 7.6, z: 23, e: '📦' }, { x: -7.6, z: 27, e: '🎬' }, { x: 7.6, z: 29, e: '💡' },
+  { x: -7.6, z: 4, p: 'lamp' }, { x: 7.6, z: 7, p: 'camera' }, { x: -7.6, z: 12, p: 'chair' }, { x: 7.6, z: 15, p: 'lamp' },
+  { x: -7.6, z: 20, p: 'box' }, { x: 7.6, z: 23, p: 'box' }, { x: -7.6, z: 27, p: 'camera' }, { x: 7.6, z: 29, p: 'lamp' },
 ]
 
 export function runAction(root, setup, onDone) {
-  const P = { x: 0, z: 2.5, fx: 0, fz: 1, hp: setup.player.hp, mp: setup.player.mp, rollT: 0, shieldT: 0, buffT: 0, buff: 0, hurtT: 0 }
+  const P = { x: 0, z: 2.5, fx: 0, fz: 1, atkT: 0, moving: false, walkT: 0, hp: setup.player.hp, mp: setup.player.mp, rollT: 0, shieldT: 0, buffT: 0, buff: 0, hurtT: 0 }
   const mobs = setup.mobs.map((m, i) => ({ ...m, x: -5 + (10 * i) / Math.max(1, setup.mobs.length - 1) + (Math.random() - 0.5), z: 10 + Math.random() * 8, hitT: 0, stunT: 0, slowT: 0, weakT: 0, weakPct: 0, atkCd: 1 + Math.random() }))
   const floats = []
   const rings = []
@@ -116,7 +117,7 @@ export function runAction(root, setup, onDone) {
   }
   function doBasic() {
     if (!started || ended || (cd.atk ?? 0) > 0) return
-    cd.atk = 0.42
+    cd.atk = 0.42; P.atkT = 0.18
     const n = nearest()
     if (n && dist(n, P) < 3) { P.fx = (n.x - P.x) / dist(n, P); P.fz = (n.z - P.z) / dist(n, P) }
     let hit = 0
@@ -131,7 +132,7 @@ export function runAction(root, setup, onDone) {
   }
   function doSkill(m, key) {
     if (!started || ended || (cd[key] ?? 0) > 0 || P.mp < m.mp) return
-    P.mp -= m.mp; cd[key] = 2.4
+    P.mp -= m.mp; cd[key] = 2.4; P.atkT = 0.25
     if (['attack', 'gold', 'stun'].includes(m.type)) {
       if (m.hits > 1) {
         const targets = alive().sort((a, b) => dist(a, P) - dist(b, P))
@@ -174,6 +175,9 @@ export function runAction(root, setup, onDone) {
     let speed = 3.6
     if (P.rollT > 0) { P.rollT -= dt; speed = 10 }
     if (ml > 0.15) { P.fx = mx / ml; P.fz = mz / ml }
+    P.moving = ml > 0.15
+    if (P.moving) P.walkT += dt
+    if (P.atkT > 0) P.atkT -= dt
     if (ml > 0.15 || P.rollT > 0) {
       const k = P.rollT > 0 ? 1 : Math.min(1, ml)
       P.x += P.fx * speed * k * dt; P.z += P.fz * speed * k * dt
@@ -258,35 +262,45 @@ export function runAction(root, setup, onDone) {
       ctx.strokeStyle = `rgba(${r.color},${1 - r.t / 0.35})`; ctx.lineWidth = 3
       ctx.beginPath(); ctx.ellipse(c.x, c.y, rad, rad * 0.32, 0, 0, Math.PI * 2); ctx.stroke()
     }
+    const pose = P.hurtT > 0 ? 'hurt' : P.atkT > 0 ? 'punch' : P.rollT > 0 ? 'jump' : P.moving ? (Math.floor(P.walkT * 8) % 2 ? 'walk1' : 'walk2') : 'idle'
     const sprites = [
-      ...PROPS.map((p) => ({ x: p.x, z: p.z, e: p.e, size: 1.2, prop: true })),
-      ...alive().map((m) => ({ x: m.x, z: m.z, e: m.emoji, size: 0.95, mob: m })),
-      { x: P.x, z: P.z, e: setup.player.emoji, size: 1.05, me: true },
-      ...shots.filter((s) => s.delay <= 0).map((s) => ({ x: s.x, z: s.z, e: s.emoji, size: 0.5, lift: 0.8 })),
+      ...PROPS.map((p) => ({ x: p.x, z: p.z, img: getSprite(`prop:${p.p}`), hgt: 1.6, prop: true })),
+      ...alive().map((m) => ({ x: m.x, z: m.z, img: getSprite(`enemy:${m.id}`, m.hitT > 0 ? 'hurt' : 'idle'), hgt: m.human ? 1.7 : 1.05, mob: m, flip: m.x > P.x })),
+      { x: P.x, z: P.z, img: getSprite(`job:${setup.player.job}`, pose), hgt: 1.7, me: true, flip: P.fx < -0.2 },
+      ...shots.filter((s) => s.delay <= 0).map((s) => ({ x: s.x, z: s.z, emoji: s.emoji, hgt: 0.5, lift: 0.8 })),
     ].sort((a, b) => b.z - a.z)
+    ctx.imageSmoothingEnabled = false
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
     for (const s of sprites) {
       const c = proj(s.x, s.z); if (!c) continue
-      const size = s.size * c.sc
-      if (!s.prop) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(c.x, c.y, size * 0.35, size * 0.1, 0, 0, Math.PI * 2); ctx.fill() }
-      ctx.globalAlpha = s.me && P.rollT > 0 ? 0.5 : 1
-      ctx.font = `${Math.max(8, size)}px sans-serif`
-      const bob = s.me && P.rollT > 0 ? 0 : 0
-      if (s.mob?.hitT > 0 || (s.me && P.hurtT > 0)) { ctx.save(); ctx.filter = 'brightness(2.2)'; ctx.fillText(s.e, c.x + (Math.random() - 0.5) * 4, c.y - (s.lift ?? 0) * c.sc + bob); ctx.restore() }
-      else ctx.fillText(s.e, c.x, c.y - (s.lift ?? 0) * c.sc + bob)
-      ctx.globalAlpha = 1
-      if (s.mob) {
-        const w = Math.max(18, size * 0.8), y = c.y - size * 1.05
-        ctx.fillStyle = '#0a0912'; ctx.fillRect(c.x - w / 2, y, w, 4)
-        ctx.fillStyle = '#ff6b6b'; ctx.fillRect(c.x - w / 2, y, w * Math.max(0, s.mob.hp / s.mob.max), 4)
-        if (s.mob.stunT > 0) { ctx.font = `${size * 0.35}px sans-serif`; ctx.fillText('💫', c.x, y - 2) }
+      const size = s.hgt * c.sc
+      if (!s.prop) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(c.x, c.y, size * 0.3, size * 0.08, 0, 0, Math.PI * 2); ctx.fill() }
+      const y = c.y - (s.lift ?? 0) * c.sc
+      if (s.img) {
+        const hh = size, ww = (s.img.width / s.img.height) * hh
+        ctx.save()
+        ctx.globalAlpha = s.me && P.rollT > 0 ? 0.55 : 1
+        ctx.translate(Math.round(c.x + ((s.mob?.hitT > 0 || (s.me && P.hurtT > 0)) ? (Math.random() - 0.5) * 4 : 0)), Math.round(y))
+        if (s.flip) ctx.scale(-1, 1)
+        if (s.mob?.hitT > 0 || (s.me && P.hurtT > 0)) ctx.filter = 'brightness(2.2)'
+        ctx.drawImage(s.img, Math.round(-ww / 2), Math.round(-hh), Math.round(ww), Math.round(hh))
+        ctx.restore()
+      } else {
+        ctx.font = `${Math.max(8, size)}px sans-serif`
+        ctx.fillText(s.emoji, c.x, y)
       }
-      if (s.me && P.shieldT > 0) { ctx.strokeStyle = 'rgba(107,182,255,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y - size * 0.5, size * 0.6, 0, Math.PI * 2); ctx.stroke() }
+      if (s.mob) {
+        const w = Math.max(18, size * 0.8), yy = c.y - size * 1.08
+        ctx.fillStyle = '#0a0912'; ctx.fillRect(c.x - w / 2, yy, w, 4)
+        ctx.fillStyle = '#ff6b6b'; ctx.fillRect(c.x - w / 2, yy, w * Math.max(0, s.mob.hp / s.mob.max), 4)
+        if (s.mob.stunT > 0) { ctx.font = `${Math.max(10, size * 0.3)}px sans-serif`; ctx.fillText('💫', c.x, yy - 2) }
+      }
+      if (s.me && P.shieldT > 0) { ctx.strokeStyle = 'rgba(107,182,255,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y - size * 0.5, size * 0.55, 0, Math.PI * 2); ctx.stroke() }
     }
     for (const f of floats) {
       const c = proj(f.x, f.z); if (!c) continue
       ctx.globalAlpha = 1 - f.t / 0.9
-      ctx.font = `bold ${Math.max(12, c.sc * 0.4)}px sans-serif`
+      ctx.font = `bold ${Math.max(12, c.sc * 0.4)}px Galmuri11, sans-serif`
       ctx.fillStyle = '#000'; ctx.fillText(f.text, c.x + 1, c.y - c.sc * (1.1 + f.t) + 1)
       ctx.fillStyle = f.color; ctx.fillText(f.text, c.x, c.y - c.sc * (1.1 + f.t))
       ctx.globalAlpha = 1

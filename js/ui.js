@@ -7,6 +7,8 @@ import { skillList, moveList, previewPower } from './combat.js'
 import { runAction } from './action.js'
 import * as Save from './save.js'
 import { h } from './dom.js'
+import { spriteImg, icon, isHuman } from './pixel.js'
+import { runBrawl } from './brawl.js'
 
 const C = D.config
 let app
@@ -42,13 +44,14 @@ function hud(s) {
   const job = St.jobOf(s)
   return h('header', { class: 'hud' },
     h('div', { class: 'hud-top' },
+      spriteImg(`job:${s.job}`, 2.5, { cls: 'portrait' }),
       h('b', { class: 'lv' }, `Lv${s.level}`),
-      h('span', { class: 'hud-job' }, `${job?.emoji ?? ''} ${job?.name ?? ''}`),
+      h('span', { class: 'hud-job' }, job?.name ?? ''),
       h('button', { class: 'hud-rec', onclick: () => sheet(s), 'aria-label': '캐릭터 정보' }, '📒')),
     h('div', { class: 'hud-bars' }, bar(s.hp, St.maxHp(s), 'hp'), bar(s.mp, St.maxMp(s), 'mp')),
     h('div', { class: 'hud-bottom' },
       h('div', { class: 'bar exp' }, h('i', { style: `width:${(100 * s.exp) / St.expToNext(s)}%` }), h('span', {}, `EXP ${s.exp}/${St.expToNext(s)}`)),
-      h('span', {}, `💰${s.money.toLocaleString()}`), h('span', {}, `⭐${s.fame}`),
+      h('span', {}, icon('coin'), s.money.toLocaleString()), h('span', {}, icon('star'), s.fame),
       h('span', { class: 'muted' }, `${s.age}살 · 작품 ${Math.min(s.projectNo + 1, C.projectsPerRun)}/${C.projectsPerRun}`)),
     s.toast?.length ? chips(s.toast) : null)
 }
@@ -97,7 +100,7 @@ const V = {
     const dex = Save.loadDex()
     const finals = D.jobs.filter((j) => j.tier === 4)
     screen(h('main', { class: 'title-screen' },
-      h('div', { class: 'hero' }, '🎥⚔️'),
+      h('div', { class: 'hero-row' }, spriteImg('enemy:pigeons', 4), spriteImg('job:cam_maknae', 5, { pose: 'punch' }), spriteImg('enemy:diva_actor', 5, { pose: 'guard', flip: true })),
       h('h1', {}, C.title),
       h('p', { class: 'sub' }, C.subtitle),
       h('div', { class: 'stack' },
@@ -116,7 +119,7 @@ const V = {
       h('div', { class: 'dex' }, finals.map((j) => {
         const got = dex[j.id]
         return h('div', { class: `dex-card ${got ? '' : 'locked'}` },
-          h('div', { class: 'dex-emoji' }, got ? j.emoji : '❔'),
+          h('div', { class: 'dex-spr' }, spriteImg(got ? `job:${j.id}` : `sil:job:${j.id}`, 2.2)),
           h('b', {}, got ? j.name : '???'),
           h('small', {}, got ? `${got.count}회 · 첫 달성 ${got.firstAge}살` : `이전 직업: ${j.from === 'any' ? '아무 3차 직업' : j.from.map((f) => St.getJob(f)?.name).join(', ')}`))
       })),
@@ -128,8 +131,9 @@ const V = {
   class: () => {
     screen(h('main', {},
       h('h2', {}, '어느 팀으로 시작할까?'),
-      h('div', { class: 'stack' }, D.classes.map((c) => h('button', { class: 'card', disabled: !c.implemented, onclick: () => E.chooseClass(c.id) },
-        h('b', {}, `${c.emoji} ${c.name}`, c.implemented ? null : h('em', { class: 'tag' }, '준비 중')), h('span', { class: 'muted' }, c.desc))))))
+      h('div', { class: 'stack' }, D.classes.map((c) => h('button', { class: 'card classcard', disabled: !c.implemented, onclick: () => E.chooseClass(c.id) },
+        c.startJob ? spriteImg(`job:${c.startJob}`, 2.5) : h('span', { class: 'evicon' }, c.emoji),
+        h('div', { class: 'jtxt' }, h('b', {}, `${c.name}`, c.implemented ? null : h('em', { class: 'tag' }, '준비 중')), h('span', { class: 'muted' }, c.desc)))))))
   },
 
   trait: (step) => {
@@ -163,8 +167,8 @@ const V = {
     const af = St.getAffix(p.affix)
     const boss = St.getEnemy(p.boss)
     const atBoss = p.step >= C.nodesPerProject
-    const NODE = { fight: ['⚔️', '현장 난전', '1대다수 액션 · 조이스틱으로 싸운다'], elite: ['💀', '강적', '1대1 턴제 · 좋은 보상'], event: ['❓', '사건', '선택에 따라 루트가 갈린다'],
-      shop: ['🛒', '렌탈샵', '장비 구매'], rest: ['🍱', '밥차', '회복 · 수련'] }
+    const NODE = { fight: ['sword', '현장 난전', '1대다수 액션 · 조이스틱으로 싸운다'], elite: ['skull', '강적', '1대1 턴제 · 좋은 보상'], event: ['question', '사건', '선택에 따라 루트가 갈린다'],
+      shop: ['cart', '렌탈샵', '장비 구매'], rest: ['bowl', '밥차', '회복 · 수련'], brawl: ['fist', '맞짱', '1대1 격투 · 사람과 정면승부'] }
     const dots = [...Array(C.nodesPerProject).keys()].map((k) => h('i', { class: k < p.step ? 'done' : k === p.step ? 'cur' : '' }))
     dots.push(h('i', { class: `boss ${atBoss ? 'cur' : ''}` }, '👑'))
     screen(hud(s), h('main', {},
@@ -173,13 +177,21 @@ const V = {
       h('div', { class: 'path' }, dots),
       atBoss
         ? h('div', { class: 'stack' }, h('p', {}, '크랭크업 날. 마지막 관문이 기다린다.'),
-          btn(h('span', {}, `👑 ${boss.emoji} ${boss.name} · 1대1`), () => E.chooseNode(0), 'primary big'))
+          h('div', { class: 'hero-px' }, spriteImg(`enemy:${boss.id}`, 5)),
+          btn(h('span', {}, icon('crown', 2), `${boss.name} · 1대1`), () => E.chooseNode(0), 'primary big'))
         : h('div', { class: 'stack' }, h('p', { class: 'muted' }, '어느 쪽으로 갈까?'),
-          p.nodes[p.step].map((kind, i) => { const [ic, nm, ds] = NODE[kind]; return h('button', { class: `card node n-${kind}`, onclick: () => E.chooseNode(i) }, h('b', {}, `${ic} ${nm}`), h('span', { class: 'muted' }, ds)) })),
+          p.nodes[p.step].map((kind, i) => { const [ic, nm, ds] = NODE[kind]; return h('button', { class: `card node n-${kind}`, onclick: () => E.chooseNode(i) }, icon(ic, 4), h('div', { class: 'ntxt' }, h('b', {}, nm), h('span', { class: 'muted' }, ds))) })),
       h('p', { class: 'muted center' }, `현재 작품 평가: ${'★'.repeat(Math.max(0, Math.min(5, p.score)))}${'☆'.repeat(Math.max(0, 5 - Math.max(0, p.score)))}`)))
   },
 
   combat: (step, s) => battle(step, s),
+
+  brawl: (step, s) => {
+    const root = h('div', { class: 'act-root' })
+    app.replaceChildren(root)
+    window.scrollTo(0, 0)
+    runBrawl(root, s.brawlSetup, (res) => E.brawlDone(res))
+  },
 
   action: (step, s) => {
     const root = h('div', { class: 'act-root' })
@@ -288,13 +300,13 @@ const V = {
       h('div', { class: 'stack' },
         step.open.map((id) => {
           const j = St.getJob(id)
-          return h('button', { class: 'card jobcard', onclick: () => E.chooseJob(id) },
-            h('b', {}, `${j.emoji} ${j.name}${j.tier === 4 ? ' ★최종' : ''}`), h('span', { class: 'muted' }, j.desc ?? (j.ending ? j.ending.slice(0, 40) + '…' : '')),
-            h('span', { class: 'rchips' }, Object.keys(j.affinity ?? {}).map((k) => h('em', {}, `${St.getRoute(k).icon}${St.getRoute(k).name}`))))
+          return h('button', { class: 'card jobcard', onclick: () => E.chooseJob(id) }, spriteImg(`job:${id}`, 2.5),
+            h('div', { class: 'jtxt' }, h('b', {}, `${j.name}${j.tier === 4 ? ' ★최종' : ''}`), h('span', { class: 'muted' }, j.desc ?? (j.ending ? j.ending.slice(0, 40) + '…' : '')),
+            h('span', { class: 'rchips' }, Object.keys(j.affinity ?? {}).map((k) => h('em', {}, `${St.getRoute(k).icon}${St.getRoute(k).name}`)))))
         }),
         step.locked.map((id) => {
           const j = St.getJob(id)
-          return h('div', { class: 'card locked' }, h('b', {}, `🔒 ${j.name}`), h('span', { class: 'muted' }, j.hint ?? '조건이 부족하다'))
+          return h('div', { class: 'card locked jobl' }, spriteImg(`sil:job:${id}`, 2), h('div', { class: 'jtxt' }, h('b', {}, `🔒 ${j.name}`), h('span', { class: 'muted' }, j.hint ?? '조건이 부족하다')))
         }))))
   },
 
@@ -302,7 +314,7 @@ const V = {
     const j = St.getJob(step.job)
     screen(hud(s), h('main', { class: 'center-col' },
       h('div', { class: 'banner job' }, '전직 완료!'),
-      h('div', { class: 'hero' }, j.emoji),
+      h('div', { class: 'hero-row' }, spriteImg(`job:${S_prevJob(s)}`, 4, { cls: 'dim' }), h('span', { class: 'evicon' }, '▶'), spriteImg(`job:${j.id}`, 6, { pose: 'win' })),
       h('h2', {}, j.name),
       h('p', { class: 'story' }, j.desc ?? j.ending ?? ''),
       btn('계속', () => E.proceed(), 'primary')))
@@ -314,11 +326,11 @@ const V = {
     const finals = D.jobs.filter((x) => x.tier === 4)
     screen(h('main', { class: 'ending' },
       h('p', { class: 'muted center' }, `ENDING · ${s.age}살 · Lv${s.level}`),
-      h('div', { class: 'hero' }, j.emoji),
+      h('div', { class: 'hero-px' }, spriteImg(`job:${j.id}`, 7, { pose: 'win' })),
       h('h1', {}, step.final ? j.name : `아직 오르는 중: ${j.name}`),
       step.isNew ? h('div', { class: 'banner win' }, '✨ 도감에 새로 등록') : null,
       h('p', { class: 'story' }, step.final ? j.ending : `최종 전직까지는 닿지 못했지만, ${j.name}(으)로 현장을 지켰다. 다음 판엔 더 멀리.`),
-      h('section', { class: 'panel' }, h('h3', {}, '전직 경로'), h('p', {}, s.jobHistory.map((x) => `${St.getJob(x.job).emoji}${St.getJob(x.job).name}`).join(' → '))),
+      h('section', { class: 'panel' }, h('h3', {}, '전직 경로'), h('div', { class: 'pathrow' }, s.jobHistory.map((x, i) => h('span', { class: 'pstep' }, i ? '→ ' : '', spriteImg(`job:${x.job}`, 1.5), St.getJob(x.job).name)))),
       h('section', { class: 'panel' }, h('h3', {}, '나를 만든 성향'), routeChips(Object.fromEntries(step.routes.map((r) => [r.id, r.v])))),
       step.memos.length ? h('section', { class: 'panel' }, h('h3', {}, '기억에 남은 선택'), h('ul', {}, step.memos.map((m) => h('li', {}, `${m.age}살 · ${m.memo}`)))) : null,
       h('section', { class: 'panel' }, h('h3', {}, '대표 스킬'), h('p', {}, skillList(s).filter((k) => !k.basic).sort((a, b) => b.lv - a.lv).slice(0, 4).map((k) => `${k.emoji}${k.name} Lv${k.lv}`).join(' · '))),
@@ -351,8 +363,8 @@ function buildBattle(s) {
     withNum ? h('div', { class: 'pk-mp' }, h('em', {}, 'MP'), h('div', { class: 'bar mp' }, h('i'), h('span'))) : null)
   const field = h('div', { class: `pk-field k-${e.kind}` },
     box('foe', `${e.kind === 'boss' ? '👑 ' : ''}${e.name}`, e.level, false),
-    h('div', { class: 'pk-foe-spr' }, h('span', {}, e.emoji)),
-    h('div', { class: 'pk-me-spr' }, h('span', {}, job.emoji)),
+    h('div', { class: 'pk-foe-spr' }, spriteImg(`enemy:${e.id}`, e.id && St.getEnemy(e.id) && isHuman(e.id) ? 4 : 5, { flip: isHuman(e.id) })),
+    h('div', { class: 'pk-me-spr' }, spriteImg(`job:${s.job}`, 5, { pose: 'guard' })),
     box('me', job.name, s.level, true))
   const msg = h('div', { class: 'pk-msg', 'aria-live': 'polite', onclick: () => skipMsg() }, h('p'))
   const menu = h('div', { class: 'pk-menu' })
@@ -446,6 +458,8 @@ function showMenu(s) {
       btn('← 뒤로', () => { B.menu = 'main'; showMenu(s) }, 'pk-back'))
   }
 }
+
+function S_prevJob(s) { return s.jobHistory[s.jobHistory.length - 2]?.job ?? s.job }
 
 function draw(step, s) {
   const v = V[step?.type]
