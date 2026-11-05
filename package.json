@@ -1,8 +1,21 @@
 {
-  "name": "film-career",
+  "name": "rolling",
   "private": true,
+  "version": "0.1.0",
   "type": "module",
+  "description": "ROLLING! — 픽셀 아트 촬영장 격투게임",
   "scripts": {
-    "simulate": "node tools/simulate.js"
+    "dev": "vite --config client/vite.config.ts",
+    "build": "tsc -p client/tsconfig.json --noEmit && vite build --config client/vite.config.ts",
+    "preview": "vite preview --config client/vite.config.ts",
+    "test": "vitest run --root client"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vitest": "3.2.4"
   }
 }

@@ -1,106 +1,89 @@
-# 촬영현장 RPG (프로토타입 v3)
+# ROLLING! — 픽셀 아트 촬영장 격투게임
 
-촬영팀 막내로 시작해 작품 10개(20살 → 40살)를 거치며 레벨을 올리고 전직하는 로그라이트 RPG입니다.
-직업은 전부 현실에 있는 이름이고, 스킬만 판타지입니다(렌즈폭탄, 트라이포드 찌르기…).
-**찍은 스킬 + 사건에서 고른 선택 + 맡은 작품**이 성향 포인트로 쌓여 전직 루트를 가릅니다. 게임오버는 없습니다.
+촬영장 직업인들이 구도·녹음 문제로 다투다가 장비를 무기로 한판 붙는 2D 대전 격투게임입니다.
 
-- 플레이: `https://<계정>.github.io/film-career/`
-- 로컬: 폴더에서 `python3 -m http.server` → `http://localhost:8000`
-- 점검: `node tools/simulate.js 300 smart` / `node tools/simulate.js 300 random`
-  - 직업 트리 검사(모든 직업에 기본 다음 루트가 있는지), 판당 터치 수, 전투 승률, 최종 직업 분포, 전직 경로 가짓수
+- **바로 플레이**: https://sungbin8815-cell.github.io/film-career/play/ (휴대폰 세로·가로 모두)
+- 기술: TypeScript · Phaser 3 · Vite (온라인 대전용 Node.js + Socket.IO 서버는 PHASE 4)
 
-## 한 판 흐름
+## 현재 진행 상황
 
-```
-계열 선택(촬영팀) → 시작 특성 3개 중 1개
-└ 작품 × 10
-   의뢰 3개 중 1개 (작품 종류 + 수식어: 장마 시즌, 예산 반토막…)
-   → 지도 2칸 (⚔️전투 / 💀강적 / ❓사건 / 🛒렌탈샵 / 🍱밥차 중 2갈래 선택) → 👑 크랭크업 보스
-   → 정산 (등급 S~D, 페이, 명성, 경험치, 성향)
-   → 레벨업마다 스킬 1개 찍기 → Lv5·10·15·20에 전직
-└ 40살 엔딩: 최종 직업 → 도감 등록, 일부는 새 시작 특성 해금
-```
-
-## 전투 세 가지
-
-| 칸 | 방식 | 조작 |
+| 단계 | 내용 | 상태 |
 |---|---|---|
-| 🥊 맞짱 (사람 적) · 사건의 "싸운다" | **1대1 격투** — 옆 시점, 실시간 | ◀ ▶ 이동, ⤒ 점프, 🛡 누르는 동안 가드, 👊 펀치, 🦵 킥, 필살기(게이지 100). PC는 A/D/W/S + J/K/L |
-| ⚔️ 현장 난전 (일반 적) | **1대다수 3인칭 액션** — 등 뒤 시점 경기장에서 무리와 싸움 | 왼쪽 끌기 = 이동, 오른쪽 = 공격·스킬 3개·구르기(무적)·박카스. PC는 WASD + J/K/L/; + Shift |
-| 💀 강적 · 👑 보스 | **1대1 턴제 (포켓몬식)** — 메시지 창 + 싸운다/가방/살펴보기/도망 | 기술 4개 중 선택. "효과가 굉장했다!" |
+| PHASE 1 | 프로젝트 세팅, 메인 메뉴, 픽셀 스타일, 촬영감독, 이동·점프·공격·방어, 체력·승패 | ✅ 완료 |
+| PHASE 2 | 연출감독·사운드감독 추가, 캐릭터별 밸런스 | ⬜ 예정 (선택 화면에 잠금 표시) |
+| PHASE 3 | STAGE MODE(스테이지 5개), 스테이지 클리어·엔딩 | ⬜ 예정 (메뉴에 잠금 표시) |
+| PHASE 4 | FRIEND MATCH 온라인 PVP (Socket.IO 서버, 6자리 방 코드) | ⬜ 예정 (메뉴에 잠금 표시) |
+| PHASE 5 | 오프닝 컷신, 실제 효과음 에셋, 환경 기믹, 연출 보강 | ⬜ 예정 |
 
-- 모든 방식이 📒에서 편성한 기술(기본기 + 3개)을 씁니다. 격투의 필살기는 편성한 공격 스킬 중 가장 센 것. 약점 속성은 1.5배.
-- 격투 밸런스는 `config.brawl`(상대 체력, 펀치·킥·필살 배율, 제한 시간).
-- 액션 밸런스는 `config.action`(무리 수, 체력·공격 배율, 제한 시간), 지도 칸 비중은 `config.nodeWeights`.
-- 테스트: 주소에 `?debug`를 붙이면 콘솔에서 `__game.debugFight('pigeons')`처럼 원하는 전투를 바로 열 수 있습니다.
+PHASE 1에서 실제로 되는 것:
+- 메인 메뉴 → START → 캐릭터 선택(촬영감독) → 크로마키 스튜디오에서 CPU와 대전 (3판 2선승, 60초)
+- 이동·달리기(같은 방향 두 번)·점프·앉기·방어, 약/강/특수기 2종/필살기
+- 공격 판정 박스 ↔ 몸통 판정 박스 충돌, 피격 경직·넉백·다운, 가드 시 피해 감소(칩 데미지), 히트스톱·화면 흔들림
+- 콤보: 약 → 약 → 강 → 특수/필살 캔슬, 콤보 보정, "N HIT!" 표시
+- 게이지: 때리거나 맞으면 참. 특수기 25, 필살기 100 소모
+- KO / 시간 초과(체력 많은 쪽 승리), 결과 화면 → 재대결 / 메뉴
+- CPU AI: EASY / NORMAL / HARD (SETTINGS에서 변경), 사운드 ON/OFF
+- 임시 효과음(WebAudio 합성): 슬레이트 "딱", 타격음, 가드음, 셔터음 등
 
-## 도트 그래픽
+아직 없는 것: 연출감독·사운드감독, STAGE MODE, 온라인 대전, 오프닝 컷신, 실제 효과음 파일, 환경 기믹. 메뉴에서 해당 버튼은 잠겨 있고 누르면 "준비 중" 안내가 나옵니다.
 
-이미지 파일 없이 `data/sprites.js` 설정으로 `js/pixel.js`가 픽셀을 그립니다. 글꼴은 Galmuri11(OFL, `fonts/`).
-- **직업 모습** `looks.직업id`: `{ skin, hair, hairStyle, top, bottom, hat, hatColor, acc: ['camera', 'vest', …] }` — 16×24 사람 틀에 옷·모자·소품을 입힘. 동작 8개(서기·걷기·펀치·킥·가드·피격·점프·승리) 자동
-- **적 모습** `enemies.적id`: 사람형은 `{ human: look }`, 나머지는 `{ shape: 'ghost', color, eye, acc }` (몸 모양 11종, 외곽선·명암 자동)
-- **아이콘·소품**: 문자열 도트 (`icons`, `props`)
-- 새 직업·적을 추가하고 여기에 한 줄을 안 넣으면 기본 모습으로 나옵니다.
+## 조작
 
-## 데이터 파일
+| | 휴대폰 | 키보드 |
+|---|---|---|
+| 이동 / 점프 / 앉기 | 왼쪽 방향 패드 (밀어서 조작) | A D / W / S |
+| 달리기 | 같은 방향 빠르게 두 번 | 같은 방향 두 번 |
+| 약공격 · 강공격 | 약 · 강 | J · K |
+| 특수기 (숄더 어택) / ▼+특수기 (조명 낙하) | 특 / ▼ + 특 | L / S + L |
+| 방어 (누르는 동안) | 방어 | I 또는 스페이스 |
+| 필살기 원테이크 (게이지 100) | 필살 | U |
+| 일시정지 | 화면 위 ❚❚ | ESC / P |
 
-```
-data/
-  config.js        밸런스 (작품 수, 경험치 곡선, 전직 레벨, 전투 수치)
-  routes.js        성향 8개 (포커스·근력·데이터·처세·감각·돈·작가주의·투쟁)
-  classes.js       시작 계열 (촬영팀만 구현, 나머지 5개는 틀)
-  traits.js        시작 특성 (unlock: 엔딩으로 해금)
-  jobs/camera.js   직업 트리 54개 (최종 21개)
-  skills/camera.js 스킬 31개
-  enemies.js       현장 문제 몬스터·엘리트·보스
-  items.js         장비 (일반·희귀·영웅·전설)
-  projects.js      작품 종류 8개 + 수식어 10개
-  events/          사건 (common.js, camera.js)
-```
+## 실행·테스트
 
-## 직업(전직) 추가하기 — `data/jobs/camera.js`
-
-```js
-{ id: 'gaffer', tier: 3, from: ['cam_second', 'grip'],   // 이 직업들에서 전직 ('any' = 바로 아래 단계 아무 직업)
-  name: '조명감독', emoji: '💡',
-  when: { routes: { art: '>=10', muscle: '>=6' } },        // 전직 조건 (없으면 기본 루트)
-  affinity: { art: 2, muscle: 2 },                         // 후보 정렬 (성향 × 가중치)
-  hint: '감각과 근력이 필요하다',                            // 잠겼을 때 보이는 힌트
-  growth: { hp: 7, mp: 3, str: 1, sen: 2 },                // 레벨업 성장
-  payMul: 2.1, projects: { film: 4, mv: 3 },               // 페이 배수, 잘 들어오는 작품
-  desc: '빛을 설계하는 사람.',
-  ending: '…' }                                            // tier 4(최종)일 때만
-```
-- tier: 0(시작) → 1(Lv5) → 2(Lv10) → 3(Lv15) → 4(Lv20, 최종 = 엔딩)
-- 최종이 아닌 직업에는 **조건 없이 갈 수 있는 다음 직업이 하나 이상** 있어야 합니다(시뮬레이터가 검사).
-- 숨은 루트: 사건에서 `flags`를 남기고 `when: { flags: ['art_saved'] }`로 겁니다.
-
-## 스킬 추가하기 — `data/skills/camera.js`
-
-```js
-{ id: 'lens_flare', name: '렌즈 플레어 섬광', emoji: '✨', route: 'art',   // 찍으면 이 성향 +2, 피해 속성
-  type: 'attack', power: 12, scale: { sen: 1.3 }, mp: 6,                  // attack heal mana guard buff debuff stun gold
-  req: { level: 5, jobs: ['b_cam'], tierMin: 2 },                         // 배울 조건
-  desc: '태양을 렌즈에 담아 적의 눈을 멀게 한다.' }
+```bash
+npm install
+npm run dev      # 개발 서버 http://localhost:5173 (같은 와이파이의 휴대폰에서도 접속 가능)
+npm test         # 전투 로직 테스트 12개 (이동·점프·피격·가드·콤보·KO·시간초과·게이지·난이도)
+npm run build    # play/ 폴더로 빌드 → 커밋하면 GitHub Pages에 반영
 ```
 
-## 사건 추가하기 — `data/events/*.js`
+주소 끝에 `?debug`를 붙이면 판정 박스(하늘색 = 몸통, 빨강 = 공격)가 보입니다.
 
-```js
-{ id: 'ev_new', when: { tierMin: 1, projects: ['film'] }, priority: 0,
-  title: '제목', emoji: '❓', text: '상황',
-  choices: [
-    { label: '근력으로 해결', when: { stats: { str: '>=8' } }, text: '결과',
-      effects: { routes: { muscle: 3 }, grade: 1, flags: ['x'] }, memo: '엔딩에 남을 한 줄' },
-    { label: '싸운다', text: '…', effects: { fight: 'tyrant_pd' } },      // 결과 후 전투
-    { label: '도박', results: [ { weight: 1, text: '대박', effects: { money: 500 } }, { weight: 2, text: '꽝', effects: {} } ] },
-  ] }
+## 폴더 구조
+
 ```
-- **조건(when)**: `routes`, `stats`(hp·mp·str·tec·sen·cha), `flags`, `notFlags`, `sinceFlag: { x: '>=3' }`(플래그 후 작품 수), `job`, `tierMin`, `tierMax`, `projects`, `money`, `fame`, `level`, `skills`, `seen`, `any`, `all`, `not`, `chance`
-- **효과(effects)**: `routes`, `stats`(영구), `flags`, `removeFlags`, `money`, `fame`, `exp`, `hp`, `mp`, `grade`(작품 평가), `item`(id 또는 'rare'·'epic'), `learn`(스킬), `fight`(적 id)
-- 지연된 결과: 막내 때 `flags: ['covered_peer']` → 3작품 뒤 `when: { sinceFlag: { covered_peer: '>=3' } }, priority: 5`
+client/
+  index.html
+  src/
+    main.ts              Phaser 설정 + 터치 콘솔
+    core/                전투 로직 (Phaser 없음 → 온라인 서버에서도 그대로 사용 예정)
+      types.ts           입력·기술·캐릭터 타입, 60프레임 고정
+      Fighter.ts         상태 머신(대기·걷기·달리기·점프·공격·피격·다운·가드…) + 물리
+      Match.ts           라운드·타이머·충돌 판정·가드·콤보·히트스톱·투사체
+      AI.ts              상태 기반 CPU (난이도 3단계)
+    config/characters.ts 캐릭터 능력치·기술 프레임 데이터 (숫자만 바꾸면 밸런스 변경)
+    gfx/                 도트 그래픽 (외부 이미지 없이 코드로 그림)
+      Painter.ts         관절 포즈 + 의상 → 48×64 픽셀 프레임 (외곽선·장비 포함)
+      poses.ts           애니메이션 14종 포즈
+      TextureFactory.ts  텍스처·애니메이션 등록, 배경·이펙트
+    scenes/              Boot · Menu · Select · Settings · Fight
+    ui/                  터치 콘솔(Controls), 설정 저장, UI 위젯
+    audio/Sfx.ts         임시 합성 효과음 (파일로 교체 가능)
+  tests/                 Vitest 테스트
+play/                    빌드 결과 (GitHub Pages가 서빙)
+server/                  (PHASE 4) Socket.IO 대전 서버
+```
 
-## 그 밖에
-- 적·장비·작품·수식어도 같은 방식으로 배열에 추가하면 됩니다(각 파일 상단 주석 참고).
-- 저장: localStorage `filmCareer.run.v3`(진행 중), `filmCareer.dex.v3`(도감). 저장이 막혀도 게임은 진행됩니다.
-- 그래픽: 지금은 이모지. 도트 이미지로 바꿀 때 `data/assets.js`를 쓸 수 있습니다.
+### 에셋 교체
+- **스프라이트**: `gfx/TextureFactory.ts`에서 `dp` 키로 만든 텍스처를 PNG 스프라이트시트(`load.spritesheet('dp', …)`)로 바꾸면 됩니다. 프레임 이름(`idle_0`, `light_1` …)과 애니메이션 키(`dp_idle` …)만 맞추면 나머지 코드는 그대로입니다.
+- **효과음**: `audio/Sfx.ts`의 `sfx(key)` 키(`slate`, `hit`, `block`, `shutter` …)를 유지한 채 파일 재생으로 바꾸면 됩니다.
+- **폰트**: Galmuri11 (SIL OFL 1.1, `client/src/assets/fonts`, 라이선스 `client/public/LICENSE-Galmuri11.txt`)
+
+### 캐릭터·기술 수치
+`config/characters.ts`의 기술마다 `startup / active / recovery`(프레임), `damage`, `hitstun`, `blockstun`, `kbX`, `hitbox`, `cost`, `cancelInto`(콤보로 이어질 수 있는 기술)를 조정합니다.
+
+## 온라인 대전 계획 (PHASE 4, 아직 구현 안 됨)
+- `server/`에 Node.js + Socket.IO 서버: 방 생성·6자리 코드·참가·이탈·준비·시작·종료 관리
+- 서버가 `core/Match`를 직접 돌리는 **서버 권위 방식**: 클라이언트는 입력(InputState)만 보내고, 서버가 상태를 브로드캐스트 → 클라이언트는 보간해서 그림
+- GitHub Pages는 정적 호스팅이라 서버를 못 돌립니다. 서버는 Render·Railway·Fly.io 같은 곳에 따로 배포하고, 게임 설정에 서버 주소를 넣는 방식이 됩니다(배포 방법은 PHASE 4에서 이 문서에 추가).
