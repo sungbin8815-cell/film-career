@@ -1,84 +1,81 @@
 // 한 판의 상태와 조회 헬퍼
 import D from '../data/index.js'
-import { randInt } from './util.js'
 
 const C = D.config
 
 export const getJob = (id) => D.jobs.find((j) => j.id === id) ?? null
-export const getField = (id) => D.fields.find((f) => f.id === id) ?? null
-export const getTrack = (id) => D.tracks.find((t) => t.id === id) ?? null
-export const getSchool = (id) => D.schools.find((s) => s.id === id) ?? null
-export const getAction = (id) => D.actions.find((a) => a.id === id) ?? null
-export const getNpc = (id) => D.npcs.find((n) => n.id === id) ?? null
-export const getEnding = (id) => D.endings.find((e) => e.id === id) ?? null
-export const getTag = (id) => D.tags.find((t) => t.id === id) ?? null
-export const traitDef = (id) => D.traits.find((t) => t.id === id) ?? null
+export const getSkill = (id) => D.skills.find((s) => s.id === id) ?? null
+export const getEnemy = (id) => D.enemies.find((e) => e.id === id) ?? null
+export const getItem = (id) => D.items.find((i) => i.id === id) ?? null
+export const getEvent = (id) => D.events.find((e) => e.id === id) ?? null
+export const getTrait = (id) => D.traits.find((t) => t.id === id) ?? null
+export const getClass = (id) => D.classes.find((c) => c.id === id) ?? null
+export const getRoute = (id) => D.routes.find((r) => r.id === id) ?? null
+export const getType = (id) => D.projects.types.find((t) => t.id === id) ?? null
+export const getAffix = (id) => D.projects.affixes.find((a) => a.id === id) ?? null
 
-export function band(v) {
-  if (v <= C.traitBands.low) return 'low'
-  if (v >= C.traitBands.high) return 'high'
-  return 'mid'
-}
-export const traitBand = (s, id) => band(s.traits[id] ?? 5)
+export const STAT_NAMES = { hp: '체력', mp: '멘탈', str: '근력', tec: '기술', sen: '감각', cha: '처세' }
+export const STAT_ICONS = { hp: '❤️', mp: '🧠', str: '💪', tec: '🔧', sen: '👁️', cha: '🗣️' }
 
 export function newRun() {
-  const traits = {}
-  for (const t of D.traits) traits[t.id] = randInt(C.traitRange[0], C.traitRange[1])
   return {
-    v: 2,
-    stage: 'intro',          // intro → student → career → ended
-    traits,
-    money: C.startMoney[band(traits.wealth)],
-    school: null,
-    field: null,
+    v: 3,
+    cls: null,
+    trait: null,
     job: null,
-    track: null,
-    exp: Object.fromEntries(D.fields.map((f) => [f.id, 0])),
-    marks: {},
-    tags: [],
-    lean: Object.fromEntries(D.leanings.axes.map((a) => [a.id, 0])),
-    npcs: Object.fromEntries(D.npcs.map((n) => [n.id, { met: false, bond: 0, mem: {} }])),
-    flags: {},               // 플래그: 붙은 시즌(t)
-    film: [],                // 필모그래피
     jobHistory: [],
-    trackHistory: [],
+    level: 1,
+    exp: 0,
+    pendingLevels: 0,
+    base: { ...C.startStats },
+    hp: C.startStats.hp,
+    mp: C.startStats.mp,
+    skills: {},
+    routes: Object.fromEntries(D.routes.map((r) => [r.id, 0])),
+    flags: {},
+    money: C.startMoney,
+    fame: 0,
+    inventory: [],
+    equip: { tool: null, gear: null },
+    projectNo: 0,     // 끝낸 작품 수
     age: C.startAge,
-    t: 0,                    // 전체 시즌 카운터 (기억·플래그 "몇 시즌 전" 계산용)
-    seasonIdx: 0,            // 한 해 안의 시즌 번호
-    studentLeft: 0,
-    careerT: 0,              // 현장 시즌 수
-    seen: {},                // 이벤트 id → 본 시즌
-    chose: {},               // '이벤트.선택' → 고른 시즌
-    log: [],                 // 선택 기록 (회고록·바꾼 선택 3개)
-    origins: {},             // 기억/플래그/꼬리표 → log 번호 (나중에 열린 이야기 세기)
-    quietUsed: {},
-    action: null,
-    seasonFilm: null,
-    pendingStage: null,
+    project: null,
+    combat: null,
+    film: [],
+    seen: {},
+    log: [],
     step: null,
   }
 }
 
-export const hasFlag = (s, f) => s.flags[f] != null
-export const careerYear = (s) => Math.floor(s.careerT / C.seasons.career.length) + 1
 export const jobOf = (s) => getJob(s.job)
+export const tierOf = (s) => jobOf(s)?.tier ?? 0
+export const stageTier = (s) => (s.projectNo < 3 ? 1 : s.projectNo < 6 ? 2 : 3)
+export const expToNext = (s) => C.exp.base + C.exp.perLevel * (s.level - 1)
+export const hasFlag = (s, f) => s.flags[f] != null
 
-export function seasonLabel(s) {
-  if (s.stage === 'intro') return '고3 겨울'
-  if (s.stage === 'student') {
-    const names = C.seasons.student
-    const sc = getSchool(s.school)
-    const total = (sc?.years ?? 0) * names.length
-    const done = total - s.studentLeft
-    const grade = Math.floor(done / names.length) + 1
-    return `${grade}학년 ${names[s.seasonIdx] ?? ''}`
-  }
-  if (s.stage === 'career') return `현장 ${careerYear(s)}년차 ${C.seasons.career[s.seasonIdx] ?? ''}`
-  return ''
+function equipped(s) {
+  return ['tool', 'gear'].map((k) => getItem(s.equip[k])).filter(Boolean)
 }
 
-export function levelName(levels, v) {
-  let name = levels[0][1]
-  for (const [min, n] of levels) if (v >= min) name = n
-  return name
+// 장비 포함 능력치
+export function stat(s, id) {
+  let v = s.base[id] ?? 0
+  for (const it of equipped(s)) v += it.stats?.[id] ?? 0
+  return v
+}
+export const maxHp = (s) => stat(s, 'hp')
+export const maxMp = (s) => stat(s, 'mp')
+export const defense = (s) => Math.floor(stat(s, 'tec') * C.combat.defPerTec) + equipped(s).reduce((a, it) => a + (it.def ?? 0), 0)
+export function boost(s, route) {
+  return equipped(s).reduce((a, it) => a + (it.boost?.[route] ?? 0), 0)
+}
+
+export function topRoutes(s, n = 3) {
+  return D.routes.map((r) => ({ ...r, v: s.routes[r.id] })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, n)
+}
+
+export function clampVitals(s) {
+  s.hp = Math.max(0, Math.min(maxHp(s), Math.round(s.hp)))
+  s.mp = Math.max(0, Math.min(maxMp(s), Math.round(s.mp)))
 }

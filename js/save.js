@@ -1,6 +1,6 @@
 // localStorage 저장. 사생활 보호 모드 등에서 실패해도 게임은 계속 돌아갑니다.
-const RUN_KEY = 'filmCareer.run.v2'
-const DEX_KEY = 'filmCareer.dex.v2'
+const RUN_KEY = 'filmCareer.run.v3'
+const DEX_KEY = 'filmCareer.dex.v3'
 
 function read(key) {
   try {
@@ -22,19 +22,19 @@ function write(key, value) {
 
 export function loadRun() {
   const r = read(RUN_KEY)
-  return r && r.v === 2 && r.step ? r : null
+  return r && r.v === 3 && r.step ? r : null
 }
 export const saveRun = (s) => write(RUN_KEY, s)
 export const clearRun = () => write(RUN_KEY, null)
 
-// 도감: { '엔딩id|성향조합': { count, firstAge, lastAt } }
+// 도감: { 최종직업id: { count, firstAge, lastAt } }
 export const loadDex = () => read(DEX_KEY) ?? {}
-export function recordEnding(key, age) {
+export function recordEnding(id, age) {
   const dex = loadDex()
-  const e = dex[key] ?? { count: 0, firstAge: age }
+  const e = dex[id] ?? { count: 0, firstAge: age }
   e.count += 1
   e.lastAt = Date.now()
-  dex[key] = e
+  dex[id] = e
   write(DEX_KEY, dex)
   return { dex, isNew: e.count === 1 }
 }

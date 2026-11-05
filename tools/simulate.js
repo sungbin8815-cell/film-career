@@ -1,93 +1,110 @@
-// 플레이 점검용: 무작위로 선택하는 플레이어로 N판을 돌립니다.
-//   node tools/simulate.js 300
-// 확인 항목: 같은 이야기 반복 여부, 판마다 이야기·선택지 차이, 조용한 시즌 비율, 엔딩·성향 분포, 한 번도 안 나온 이야기
+// 밸런스·구조 점검: node tools/simulate.js 300 [random|smart]
+//   - 직업 트리 검사: 최종이 아닌 모든 직업에 조건 없는 다음 직업이 있는지
+//   - N판 자동 플레이: 레벨 진행, 최종 직업 분포, 전투 승률·턴 수, 판당 터치 수, 판끼리 루트 차이
 import * as E from '../js/engine.js'
+import * as St from '../js/state.js'
+import { skillList } from '../js/combat.js'
 import D from '../data/index.js'
-import { CONDITION_KEYS } from '../js/conditions.js'
 
 const N = Number(process.argv[2] ?? 300)
-// steady: 일 위주로 하고 직업을 잘 안 바꾸는 플레이어 / random: 완전 무작위
 const POLICY = process.argv[3] ?? 'random'
-const leanVals = { art: [], risk: [], people: [] }
-let step = null
+let warns = 0
+const ow = console.warn
+console.warn = (...a) => { warns++; if (warns < 8) ow(...a) }
+
+// 1) 트리 검사
+const problems = []
+for (const j of D.jobs.filter((x) => x.tier < 4)) {
+  const kids = D.jobs.filter((k) => k.tier === j.tier + 1 && (k.from === 'any' || k.from.includes(j.id)))
+  const free = kids.filter((k) => !k.when || JSON.stringify(k.when).includes(`"${j.id}"`))
+  if (!kids.length) problems.push(`${j.id}: 다음 직업 없음`)
+  else if (!free.length) problems.push(`${j.id}: 조건 없이 갈 수 있는 다음 직업 없음 (${kids.map((k) => k.id).join(',')})`)
+}
+console.log(problems.length ? `트리 문제:\n  ${problems.join('\n  ')}` : '트리 검사: 모든 직업에 기본 다음 루트 있음')
+const finals = D.jobs.filter((j) => j.tier === 4)
+console.log(`직업 ${D.jobs.length}개 (최종 ${finals.length}개) · 스킬 ${D.skills.length} · 사건 ${D.events.length} · 적 ${D.enemies.length} · 장비 ${D.items.length}`)
+
+// 2) 자동 플레이
+let step
 E.setListener((s) => { step = s })
-
-const endings = {}
-const combos = {}
-const storyCount = {}
-const runs = []
-let repeats = 0
-let quiet = 0
-let seasons = 0
-let errors = 0
-
-const origWarn = console.warn
-console.warn = (...a) => { errors++; if (errors < 10) origWarn(...a) }
+const endCount = {}
+const paths = new Set()
+let taps = 0, fights = 0, losses = 0, turns = 0, levelSum = 0, finalSum = 0, bossLoss = 0, bosses = 0
+const jobAtProject = {}
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 
 for (let n = 0; n < N; n++) {
   E.newGame()
-  const seenThisRun = []
-  const choiceSets = []
   let guard = 0
   while (step.type !== 'ending' && guard++ < 3000) {
-    if (step.type === 'story') {
-      const st = E.storyById(step.id)
-      if (!step.id.startsWith('offer:')) {
-        if (seenThisRun.includes(step.id)) repeats++
-        seenThisRun.push(step.id)
-        storyCount[step.id] = (storyCount[step.id] ?? 0) + 1
+    const s = E.getState()
+    taps++
+    switch (step.type) {
+      case 'class': E.chooseClass('camera'); break
+      case 'trait': E.chooseTrait(pick(step.offered)); break
+      case 'offers': E.chooseOffer(Math.floor(Math.random() * step.offers.length)); break
+      case 'map': {
+        const p = s.project
+        const opts = p.step >= D.config.nodesPerProject ? ['boss'] : p.nodes[p.step]
+        let i = Math.floor(Math.random() * opts.length)
+        if (POLICY === 'smart' && s.hp < St.maxHp(s) * 0.4 && opts.includes('rest')) i = opts.indexOf('rest')
+        E.chooseNode(i); break
       }
-      const vis = E.visibleChoices(st)
-      choiceSets.push(`${step.id}:${vis.map((v) => v.i).join(',')}`)
-      let pool = vis
-      if (POLICY === 'steady') {
-        const changesJob = (v) => v.c.effects?.setJob && !step.id.startsWith('offer:')
-        const keep = vis.filter((v) => !changesJob(v))
-        if (keep.length && Math.random() < 0.85) pool = keep
-        if (step.id.startsWith('offer:') && Math.random() < 0.8) pool = vis.filter((v) => v.c.id === 'accept')
+      case 'combat': {
+        if (s.combat.turn === 1) fights++
+        turns++
+        const list = skillList(s).filter((k) => s.mp >= (k.mp ?? 0))
+        let k
+        if (POLICY === 'smart') {
+          const hpLow = s.hp < St.maxHp(s) * 0.35
+          const heal = list.find((x) => x.type === 'heal')
+          const guardSk = list.find((x) => x.type === 'guard' || x.type === 'stun')
+          const atk = list.filter((x) => ['attack', 'gold', 'stun'].includes(x.type)).sort((a, b) => b.power - a.power)
+          k = (hpLow && heal) || (s.combat.charging && guardSk) || atk[0] || list[0]
+        } else k = pick(list)
+        E.useSkill(k.id); break
       }
-      const pick = pool[Math.floor(Math.random() * pool.length)]
-      E.choose(pick.i)
-    } else if (step.type === 'season') {
-      const acts = E.availableActions()
-      // 일하는 행동을 조금 더 자주 고르는 무작위 플레이어
-      const weighted = acts.flatMap((a) => (a.group === 'work' ? Array(POLICY === 'steady' ? 6 : 3).fill(a) : [a]))
-      seasons++
-      E.chooseAction(weighted[Math.floor(Math.random() * weighted.length)].id)
-    } else if (step.type === 'recap') {
-      if (step.text) quiet++
-      E.proceed()
-    } else if (step.type === 'minigame') {
-      E.minigameDone({ outcome: 'win' })
-    } else E.proceed()
+      case 'combat_end':
+        if (step.result === 'lose') losses++
+        if (step.source === 'boss') { bosses++; if (step.result === 'lose') bossLoss++ }
+        E.proceed(); break
+      case 'event': {
+        const ev = D.events.find((e) => e.id === step.id)
+        const vis = E.visibleChoices(ev)
+        E.chooseEvent(pick(vis).i); break
+      }
+      case 'shop': {
+        const afford = step.stock.filter((id) => St.getItem(id).price <= s.money)
+        if (afford.length && Math.random() < 0.6) E.buyItem(afford[0])
+        else E.proceed()
+        break
+      }
+      case 'rest': E.chooseRest(pick(step.options)); break
+      case 'levelup': E.chooseSkill(step.choices.length ? pick(step.choices) : '__stat'); break
+      case 'jobchange': E.chooseJob(POLICY === 'smart' ? step.open[0] : pick(step.open)); break
+      case 'result':
+        jobAtProject[s.projectNo] = (jobAtProject[s.projectNo] ?? 0) + St.tierOf(s)
+        E.proceed(); break
+      default: E.proceed()
+    }
   }
-  if (step.type !== 'ending') { console.log('끝나지 않은 판:', step); break }
-  const e = step.ending
-  for (const k of Object.keys(leanVals)) leanVals[k].push(E.getState().lean[k])
-  endings[e.id] = (endings[e.id] ?? 0) + 1
-  combos[e.combo.key] = (combos[e.combo.key] ?? 0) + 1
-  runs.push({ stories: new Set(seenThisRun), choices: choiceSets, film: e.film.length, turning: e.turning.length, memoir: e.memoir.length })
+  const s = E.getState()
+  if (step.type !== 'ending') { console.log('끝나지 않은 판', step.type); break }
+  levelSum += s.level
+  if (step.final) finalSum++
+  endCount[step.job] = (endCount[step.job] ?? 0) + 1
+  paths.add(s.jobHistory.map((j) => j.job).join('>'))
 }
 
-// 판끼리 이야기 겹침 (Jaccard)
-let sim = 0, pairs = 0
-for (let i = 0; i < Math.min(runs.length, 60); i++) for (let j = i + 1; j < Math.min(runs.length, 60); j++) {
-  const a = runs[i].stories, b = runs[j].stories
-  const inter = [...a].filter((x) => b.has(x)).length
-  sim += inter / (a.size + b.size - inter); pairs++
-}
-
-console.log(`=== ${N}판 (${POLICY}) ===`)
-console.log(`판당 이야기 ${(runs.reduce((a, r) => a + r.stories.size, 0) / N).toFixed(1)}개 · 시즌 ${(seasons / N).toFixed(1)}개 · 조용한 시즌 ${(100 * quiet / seasons).toFixed(1)}%`)
-console.log(`같은 판 안에서 반복된 이야기: ${repeats}회`)
-console.log(`두 판의 이야기 겹침(평균 Jaccard): ${(100 * sim / pairs).toFixed(1)}%`)
-console.log(`필모 평균 ${(runs.reduce((a, r) => a + r.film, 0) / N).toFixed(1)}줄 · 바꾼 선택 평균 ${(runs.reduce((a, r) => a + r.turning, 0) / N).toFixed(1)}개`)
-console.log('\n엔딩:')
-for (const e of D.endings) console.log(`  ${String(endings[e.id] ?? 0).padStart(4)}  ${e.title}`)
-console.log('\n성향 조합:')
-for (const [k, v] of Object.entries(D.leanings.combos)) console.log(`  ${String(combos[k] ?? 0).padStart(4)}  ${v.name} (${k})`)
-const never = D.storylets.filter((s) => !s.manual && !storyCount[s.id]).map((s) => s.id)
-console.log(`\n한 번도 안 나온 이야기 (${never.length}): ${never.join(', ') || '없음'}`)
-console.log(`조건/효과 경고: ${errors}`)
-const med = (a) => { const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)] }
-console.log('성향 축 중앙값:', Object.fromEntries(Object.entries(leanVals).map(([k, v]) => [k, med(v)])))
+console.log(`\n=== ${N}판 (${POLICY}) ===`)
+console.log(`판당 터치 ${(taps / N).toFixed(0)}회 · 평균 최종 레벨 ${(levelSum / N).toFixed(1)} · 최종 전직 도달 ${(100 * finalSum / N).toFixed(0)}%`)
+console.log(`전투 ${(fights / N).toFixed(1)}회/판 · 패배율 ${(100 * losses / fights).toFixed(1)}% · 보스 패배율 ${(100 * bossLoss / bosses).toFixed(1)}% · 전투당 ${(turns / fights).toFixed(1)}턴`)
+console.log('작품 n개 후 평균 직업 단계:', Object.entries(jobAtProject).map(([k, v]) => `${k}:${(v / N).toFixed(1)}`).join(' '))
+console.log(`서로 다른 전직 경로: ${paths.size}가지`)
+console.log('\n최종 직업 분포:')
+const sorted = Object.entries(endCount).sort((a, b) => b[1] - a[1])
+for (const [id, c] of sorted) console.log(`  ${String(c).padStart(4)}  ${St.getJob(id)?.name}${St.getJob(id)?.tier === 4 ? '' : ' (미완)'}`)
+const never = finals.filter((j) => !endCount[j.id]).map((j) => j.name)
+console.log(`\n한 번도 안 나온 최종 직업: ${never.join(', ') || '없음'}`)
+const evSeen = new Set()
+console.log(`경고: ${warns}`)

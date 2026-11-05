@@ -1,119 +1,97 @@
-// 효과(effects) 적용. 화면에 보여줄 "변화 메모"를 돌려줍니다(성향은 숨김).
-//   money, exp, mark, lean, npc, flags, removeFlags, setJob, setTrack, setSchool, setField,
-//   startStage, film, filmNote, age
+// 효과 적용. 화면에 보여줄 변화 메모를 돌려줍니다.
+//   routes, flags, removeFlags, money, exp, hp, mp, fame, grade, item, items, stats, learn
+//   (fight는 엔진이 처리)
 import D from '../data/index.js'
-import { getJob, getField, getTrack, getNpc, hasFlag } from './state.js'
-import { test } from './conditions.js'
-import { render } from './text.js'
-import { resolveNum, asList } from './util.js'
+import * as St from './state.js'
+import { asList, resolveNum, weightedPick } from './util.js'
 
-function resolveField(s, f) {
-  if (f === '@job') return getJob(s.job)?.field ?? s.field
-  if (f === '@field') return s.field
-  return f
-}
+const sign = (v) => (v > 0 ? `+${v}` : `${v}`)
 
-export function updateTags(s, logIdx, notes) {
-  for (const t of D.tags) {
-    if (s.tags.includes(t.id)) continue
-    if (t.mark && (s.marks[t.mark.id] ?? 0) < t.mark.count) continue
-    if (t.when && !test(t.when, s)) continue
-    if (!t.mark && !t.when) continue
-    s.tags.push(t.id)
-    if (logIdx != null) s.origins[`tag:${t.id}`] = logIdx
-    notes.push({ text: `🏷️ 꼬리표가 붙었다: ${t.name}`, tone: 'key' })
+export function gainExp(s, amount) {
+  let v = Math.round(amount * (St.hasFlag(s, 'hungry') ? 1.15 : 1))
+  s.exp += v
+  while (s.level < D.config.maxLevel && s.exp >= St.expToNext(s)) {
+    s.exp -= St.expToNext(s)
+    s.level += 1
+    s.pendingLevels += 1
   }
+  return v
 }
 
-function leanApply(s, o) {
-  for (const [k, v] of Object.entries(o)) {
-    const ax = D.leanings.axes.find((a) => a.pos === k || a.neg === k)
-    if (!ax) { console.warn('[효과] 알 수 없는 성향:', k); continue }
-    s.lean[ax.id] += ax.pos === k ? v : -v
-  }
+// 등급 이름이면 그 등급에서 랜덤, 아니면 id
+export function rollItem(s, which) {
+  if (St.getItem(which)) return which
+  const tier = St.stageTier(s)
+  const pool = D.items.filter((i) => i.rarity === which && i.tier <= tier + 1)
+  const pick = weightedPick(pool.length ? pool : D.items.filter((i) => i.tier <= tier), () => 1)
+  return pick?.id ?? null
 }
 
-export function setJob(s, id, notes) {
-  const target = id === '@entry' ? getField(s.field)?.entryJob : id
-  if (!target || target === s.job) return
-  s.job = target
-  s.jobHistory.push({ job: target, age: s.age })
-  notes?.push({ text: `💼 ${getJob(target)?.name}`, tone: 'key' })
+const RANK = { common: 0, rare: 1, epic: 2, legend: 3 }
+export function giveItem(s, id, notes) {
+  const it = St.getItem(id)
+  if (!it) return
+  s.inventory.push(id)
+  const cur = St.getItem(s.equip[it.slot])
+  if (!cur || RANK[it.rarity] > RANK[cur.rarity]) {
+    s.equip[it.slot] = id
+    notes?.push({ text: `🎁 ${it.name} 획득 · 장착`, tone: 'key' })
+  } else notes?.push({ text: `🎁 ${it.name} 획득`, tone: 'key' })
+  St.clampVitals(s)
 }
 
-export function setTrack(s, id, notes) {
-  if (!id || id === s.track) return
-  s.track = id
-  s.trackHistory.push({ track: id, age: s.age })
-  notes?.push({ text: `🧭 ${getTrack(id)?.name} 쪽으로`, tone: '' })
+export function learnSkill(s, id, notes) {
+  const sk = St.getSkill(id)
+  if (!sk) return
+  const lv = s.skills[id] ?? 0
+  if (lv >= 3) return
+  s.skills[id] = lv + 1
+  s.routes[sk.route] = (s.routes[sk.route] ?? 0) + 2
+  notes?.push({ text: `✨ ${sk.name}${lv ? ` Lv${lv + 1}` : ' 습득'}`, tone: 'key' })
 }
 
-export function applyEffects(eff, s, logIdx = null) {
+export function applyEffects(eff, s) {
   const notes = []
   if (!eff) return notes
-
+  for (const [k, raw] of Object.entries(eff.routes ?? {})) {
+    const v = resolveNum(raw)
+    s.routes[k] = (s.routes[k] ?? 0) + v
+    const r = St.getRoute(k)
+    if (r && v) notes.push({ text: `${r.icon} ${r.name} ${sign(v)}`, tone: 'route' })
+  }
+  for (const [k, raw] of Object.entries(eff.stats ?? {})) {
+    const v = resolveNum(raw)
+    s.base[k] = (s.base[k] ?? 0) + v
+    if (k === 'hp') s.hp += v
+    if (k === 'mp') s.mp += v
+    notes.push({ text: `${St.STAT_ICONS[k]} ${St.STAT_NAMES[k]} 최대 ${sign(v)}`, tone: 'good' })
+  }
+  for (const f of asList(eff.flags ?? [])) if (!St.hasFlag(s, f)) s.flags[f] = s.projectNo
+  for (const f of asList(eff.removeFlags ?? [])) delete s.flags[f]
   if (eff.money) {
     const v = resolveNum(eff.money)
     s.money += v
-    if (v) notes.push({ text: `💰 ${v > 0 ? '+' : ''}${v.toLocaleString()}만`, tone: v > 0 ? 'good' : 'bad' })
+    notes.push({ text: `💰 ${sign(v)}만`, tone: v > 0 ? 'good' : 'bad' })
   }
-  if (eff.setSchool) s.school = eff.setSchool
-  if (eff.setField) s.field = eff.setField
-  if (eff.age) s.age += eff.age
-
-  const grown = []
-  for (const [f, raw] of Object.entries(eff.exp ?? {})) {
-    const id = resolveField(s, f)
-    const v = resolveNum(raw)
-    if (!id || !v) continue
-    s.exp[id] = (s.exp[id] ?? 0) + v
-    if (v > 0) grown.push(getField(id)?.name ?? id)
+  if (eff.fame) {
+    s.fame += eff.fame
+    notes.push({ text: `⭐ 명성 ${sign(eff.fame)}`, tone: 'good' })
   }
-  if (grown.length) notes.push({ text: `📈 ${[...new Set(grown)].join('·')} 경험이 쌓였다`, tone: 'good' })
-
-  for (const m of asList(eff.mark ?? [])) s.marks[m] = (s.marks[m] ?? 0) + 1
-  if (eff.lean) leanApply(s, eff.lean)
-
-  for (const [id, c] of Object.entries(eff.npc ?? {})) {
-    const n = s.npcs[id]
-    const def = getNpc(id)
-    if (!n || !def) continue
-    if (!n.met && (c.meet || c.bond || c.remember)) {
-      n.met = true
-      notes.push({ text: `🤝 ${def.name}(${def.role})을(를) 알게 되었다`, tone: 'key' })
-    }
-    if (c.bond) {
-      n.bond += c.bond
-      notes.push({ text: c.bond > 0 ? `🤝 ${def.name}과(와) 가까워졌다` : `🥶 ${def.name}과(와) 서먹해졌다`, tone: c.bond > 0 ? 'good' : 'bad' })
-    }
-    for (const m of asList(c.remember ?? [])) {
-      n.mem[m] = s.t
-      if (logIdx != null) s.origins[`mem:${id}:${m}`] = logIdx
-    }
-    if (c.remember) notes.push({ text: `💭 ${def.name}은(는) 이 일을 기억할 것이다`, tone: 'key' })
-    for (const m of asList(c.forget ?? [])) delete n.mem[m]
+  if (eff.hp) {
+    s.hp += eff.hp
+    notes.push({ text: `❤️ HP ${sign(eff.hp)}`, tone: eff.hp > 0 ? 'good' : 'bad' })
   }
-
-  for (const f of asList(eff.flags ?? [])) {
-    if (!hasFlag(s, f)) s.flags[f] = s.t
-    if (logIdx != null) s.origins[`flag:${f}`] ??= logIdx
+  if (eff.mp) {
+    s.mp += eff.mp
+    notes.push({ text: `🧠 MP ${sign(eff.mp)}`, tone: eff.mp > 0 ? 'good' : 'bad' })
   }
-  for (const f of asList(eff.removeFlags ?? [])) delete s.flags[f]
-
-  if (eff.setJob) setJob(s, eff.setJob, notes)
-  if (eff.setTrack) setTrack(s, eff.setTrack, notes)
-
-  if (eff.film) {
-    s.film.push({ age: s.age, title: render(eff.film.title ?? s.seasonTitle ?? '무제', s), role: render(eff.film.role ?? '{job}', s), note: render(eff.film.note ?? '', s) })
-    notes.push({ text: '🎞️ 필모그래피에 한 줄이 남았다', tone: '' })
+  if (eff.grade && s.project) {
+    s.project.score += eff.grade
+    notes.push({ text: eff.grade > 0 ? '🎬 작품 평가 상승' : '🎬 작품 평가 하락', tone: eff.grade > 0 ? 'good' : 'bad' })
   }
-  if (eff.filmNote && s.seasonFilm != null && s.film[s.seasonFilm]) {
-    const f = s.film[s.seasonFilm]
-    const note = render(eff.filmNote, s)
-    f.note = f.note ? `${f.note}, ${note}` : note
-  }
-  if (eff.startStage) s.pendingStage = eff.startStage
-
-  updateTags(s, logIdx, notes)
+  if (eff.exp) notes.push({ text: `📈 경험치 +${gainExp(s, eff.exp)}`, tone: 'good' })
+  for (const it of [...asList(eff.items ?? []), ...(eff.item ? [eff.item] : [])]) giveItem(s, rollItem(s, it), notes)
+  if (eff.learn) learnSkill(s, eff.learn, notes)
+  St.clampVitals(s)
   return notes
 }

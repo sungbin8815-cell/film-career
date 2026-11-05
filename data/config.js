@@ -1,42 +1,46 @@
-// 게임 전체 설정. 숫자는 화면에 직접 나오지 않고 흐름만 정합니다.
+// 게임 전체 설정 (밸런스 숫자)
 export default {
-  title: '촬영현장 커리어',
-  subtitle: '열아홉부터 마흔까지, 현장에서 사는 인생',
+  title: '촬영현장 RPG',
+  subtitle: '막내에서 최종 전직까지. 찍은 스킬과 고른 선택이 루트를 가른다.',
 
-  startAge: 19,
-  endAge: 40,          // 이 나이가 되면 엔딩
+  startAge: 20,
+  projectsPerRun: 10,     // 한 판 = 작품 10개
+  yearsPerProject: 2,     // 작품 하나마다 나이 +2
 
-  // 1년에 몇 시즌인지, 시즌 이름
-  seasons: {
-    student: ['봄 학기', '가을 학기'],
-    career: ['봄', '여름', '가을·겨울'],
+  nodesPerProject: 2,     // 보스 전 칸 수 (각 칸마다 2갈래 중 선택)
+  nodeChoices: 2,
+  offersPerProject: 3,    // 다음 작품 의뢰 후보 수
+
+  // 레벨: 다음 레벨까지 필요한 경험치 = base + perLevel × (현재 레벨 - 1)
+  exp: { base: 16, perLevel: 9 },
+  maxLevel: 25,
+  // 이 레벨이 되면 전직 (tier 1~4)
+  jobTierLevels: { 1: 5, 2: 10, 3: 15, 4: 20 },
+  levelUpHeal: 0.4,       // 레벨업 시 HP·MP 최대치의 이 비율만큼 회복
+  skillChoices: 3,        // 레벨업 때 제시되는 스킬 후보 수
+
+  // 시작 능력치
+  startStats: { hp: 60, mp: 20, str: 4, tec: 4, sen: 4, cha: 4 },
+  startMoney: 100,
+
+  combat: {
+    mpRegen: 2,            // 매 턴 MP 회복
+    critBase: 5, critPerSen: 1.2, critMul: 1.6,
+    weakMul: 1.5, resistMul: 0.6,
+    defPerTec: 0.25,       // 기술 1당 받는 피해 감소
+    enemyScale: 0.16,      // 작품 번호가 오를 때마다 적 능력치 +16%
+    lose: { hp: 0.3, moneyPct: 0.08 },  // 패배해도 게임오버 없음: HP 30%로, 돈 일부 손해
   },
 
-  // 타고난 자질: 1~10 랜덤. 조건에서는 low / mid / high 로만 씀
-  traitRange: [1, 10],
-  traitBands: { low: 3, high: 8 },   // ≤3 low, ≥8 high, 나머지 mid
+  rest: { heal: 0.5 },
+  shop: { items: 3, potion: { name: '박카스 한 박스', price: 60, heal: 1 } },
 
-  // 시작 통장(만원): 재력 단계별
-  startMoney: { low: 20, mid: 120, high: 600 },
-  // 학생 시즌 용돈 − 생활비 (재력 단계별)
-  studentAllowance: { low: -60, mid: 40, high: 250 },
-  // 현장 시즌 생활비. 본가에 살면(flag at_home) homeLivingCost
-  livingCost: 420,
-  homeLivingCost: 120,
-
-  // 경험 단계 이름 (분야별 경험 수치 → 말로 표시)
-  expLevels: [
-    [0, '없음'], [1, '맛보기'], [3, '초보'], [6, '익숙함'], [10, '능숙함'], [15, '베테랑'], [21, '장인'],
+  // 작품 평가: 점수 → 등급 (보상 배수)
+  grades: [
+    { min: 7, id: 'S', mul: 1.7 },
+    { min: 5, id: 'A', mul: 1.35 },
+    { min: 3, id: 'B', mul: 1.0 },
+    { min: 1, id: 'C', mul: 0.8 },
+    { min: -99, id: 'D', mul: 0.6 },
   ],
-  // 인연 단계 이름
-  bondLevels: [
-    [-99, '불편한 사이'], [-1, '서먹한 사이'], [0, '아는 사이'], [2, '가까운 사이'], [4, '오랜 동료'], [6, '평생의 인연'],
-  ],
-
-  // 직업 제안을 거절하면 몇 시즌 뒤에 다시 올 수 있는지
-  offerCooldown: 6,
-
-  // 시작 이야기
-  introStorylet: 'intro_graduation',
-  careerStartStorylet: 'career_start',
 }

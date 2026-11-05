@@ -1,13 +1,12 @@
-// 진행 엔진 (storylet 방식). DOM을 모릅니다 — 화면은 setListener로 받은 함수가 그립니다.
-// 흐름: 시즌 시작 → 행동 선택 → 조건이 맞는 이야기 1개 → 선택 → 결과 + 시즌 정리 → 다음 시즌 … 40세 엔딩
+// 진행 엔진 (DOM 없음). 화면은 setListener로 받은 함수가 그립니다.
+// 흐름: 계열 → 시작 특성 → [작품 의뢰 선택 → 지도 칸 3개 + 보스 → 정산 → 레벨업·스킬 → 전직] × 10 → 엔딩
 import D from '../data/index.js'
 import * as St from './state.js'
-import { test, referencedKeys } from './conditions.js'
-import { applyEffects } from './effects.js'
-import { render } from './text.js'
-import { buildEnding } from './memoir.js'
+import { test } from './conditions.js'
+import { applyEffects, gainExp, giveItem, learnSkill, rollItem } from './effects.js'
+import { startCombat, useSkill as combatUse } from './combat.js'
 import * as Save from './save.js'
-import { randInt, pickOne, weightedPick, asList } from './util.js'
+import { pickOne, weightedPick, randInt, asList } from './util.js'
 
 const C = D.config
 let S = null
@@ -15,274 +14,397 @@ let listener = () => {}
 
 export const getState = () => S
 export function setListener(fn) { listener = fn }
-
-function go(step) {
-  S.step = step
-  Save.saveRun(S)
-  listener(step, S)
-}
+function go(step) { S.step = step; Save.saveRun(S); listener(step, S); S.toast = null }
 
 // ───────── 시작 ─────────
-export function newGame() {
-  S = St.newRun()
-  play(C.introStorylet)
-}
-export function resume(saved) {
-  S = saved
-  listener(S.step, S)
-}
+export function newGame() { S = St.newRun(); go({ type: 'class' }) }
+export function resume(saved) { S = saved; listener(S.step, S) }
 
-// ───────── 이야기(storylet) ─────────
-function offerStory(jobId) {
-  const job = St.getJob(jobId)
-  const o = job.offer
-  return {
-    id: `offer:${jobId}`, title: o.title ?? '제안', image: o.image ?? 'office', text: o.text,
-    choices: [
-      { id: 'accept', label: o.accept ?? `${job.name} 자리를 받아들인다`, text: o.acceptText ?? `${job.name}이(가) 되었다.`,
-        effects: { setJob: jobId, ...(o.effects ?? {}) }, memo: o.memo, pivotal: 1 },
-      { id: 'decline', label: o.decline ?? '아직은 지금 자리가 좋다', text: o.declineText ?? '정중히 거절했다. 지금 자리에서 더 배우고 싶었다.',
-        effects: { flags: [`declined_${jobId}`], lean: { safe: 1 } } },
-    ],
+export function chooseClass(id) {
+  const c = St.getClass(id)
+  if (!c?.implemented) return
+  S.cls = id
+  for (const [k, v] of Object.entries(c.bonus ?? {})) S.base[k] += v
+  S.job = c.startJob
+  S.jobHistory.push({ job: c.startJob, level: 1, age: S.age })
+  const dex = Save.loadDex()
+  const pool = D.traits.filter((t) => !t.unlock || dex[t.unlock])
+  const offered = []
+  while (offered.length < 3 && offered.length < pool.length) {
+    const t = pickOne(pool.filter((x) => !offered.includes(x.id)))
+    offered.push(t.id)
   }
+  go({ type: 'trait', offered })
 }
 
-export function storyById(id) {
-  if (id?.startsWith('offer:')) return offerStory(id.slice(6))
-  return D.storylets.find((s) => s.id === id) ?? null
+export function chooseTrait(id) {
+  if (S.step.type !== 'trait' || !S.step.offered.includes(id)) return
+  const t = St.getTrait(id)
+  S.trait = id
+  applyEffects(t.effects, S)
+  S.hp = St.maxHp(S); S.mp = St.maxMp(S)
+  learnSkill(S, pickOne(['focus_snipe', 'tripod_stab', 'lens_bomb', 'coffee_32']))
+  showOffers()
 }
 
-export const visibleChoices = (st) => st.choices.map((c, i) => ({ c, i })).filter(({ c }) => test(c.when, S))
-
-function actionMatches(st, actionId) {
-  if (!st.action) return true
-  const a = St.getAction(actionId)
-  const list = asList(st.action)
-  return list.includes(actionId) || (a && list.includes(a.group))
+// ───────── 작품 의뢰 ─────────
+function makeOffer(typeId) {
+  const type = St.getType(typeId)
+  const affixPool = D.projects.affixes.filter((a) => !a.types || a.types.includes(typeId))
+  const affix = Math.random() < 0.65 ? pickOne(affixPool).id : null
+  const tpl = pickOne(type.names)
+  const name = tpl.replace('{t}', pickOne(D.names.titles)).replace('{b}', pickOne(D.names.brands))
+  const af = St.getAffix(affix)
+  const job = St.jobOf(S)
+  const pay = Math.round(type.pay * (job?.payMul ?? 1) * (af?.pay ?? 1) * (1 + 0.12 * S.projectNo))
+  const routes = { ...type.routes }
+  for (const [k, v] of Object.entries(af?.routes ?? {})) routes[k] = (routes[k] ?? 0) + v
+  return { type: typeId, affix, name, pay, routes }
 }
 
-function eligible(st, actionId) {
-  if (st.manual) return false
-  if ((st.stage ?? 'career') !== S.stage) return false
-  if (!st.repeat && S.seen[st.id] != null) return false
-  if (!actionMatches(st, actionId)) return false
-  if (!test(st.when, S)) return false
-  return visibleChoices(st).length > 0
-}
-
-function pickStory(actionId) {
-  const a = St.getAction(actionId)
-  const cands = D.storylets.filter((st) => eligible(st, actionId))
-  if (a?.work && S.stage === 'career') {
-    for (const j of D.jobs) {
-      const o = j.offer
-      if (!o || !asList(o.from).includes(S.job) || !test(o.when, S)) continue
-      const declined = S.flags[`declined_${j.id}`]
-      if (declined != null && S.t - declined < C.offerCooldown) continue
-      cands.push({ id: `offer:${j.id}`, priority: o.priority ?? 3, weight: 1 })
-    }
+function showOffers() {
+  if (S.projectNo >= C.projectsPerRun) return endRun()
+  const job = St.jobOf(S)
+  const weights = Object.entries(job?.projects ?? { short: 1 })
+    .filter(([id]) => (St.getType(id)?.minProject ?? 0) <= S.projectNo + 1)
+  const types = []
+  let guard = 0
+  while (types.length < C.offersPerProject && guard++ < 50) {
+    const pick = weightedPick(weights.map(([id, w]) => ({ id, weight: w })))
+    if (pick && !types.includes(pick.id)) types.push(pick.id)
+    if (types.length === weights.length) break
   }
-  if (!cands.length) return null
-  const top = Math.max(...cands.map((c) => c.priority ?? 0))
-  return weightedPick(cands.filter((c) => (c.priority ?? 0) === top))
-}
-
-function play(id) {
-  const st = storyById(id)
-  if (!st) {
-    console.warn('[엔진] 없는 이야기:', id)
-    return afterStory()
+  while (types.length < C.offersPerProject) {
+    const extra = pickOne(D.projects.types.filter((t) => !types.includes(t.id) && (t.minProject ?? 0) <= S.projectNo + 1))
+    if (!extra) break
+    types.push(extra.id)
   }
-  S.seen[st.id] = S.t
-  // 이 이야기를 연 과거 선택에 "이어진 이야기" 점수
-  for (const key of new Set(referencedKeys(st.when))) {
-    const idx = S.origins[key]
-    if (idx != null && S.log[idx]) S.log[idx].opened += 1
+  go({ type: 'offers', offers: types.map(makeOffer) })
+}
+
+export function chooseOffer(i) {
+  const o = S.step.offers?.[i]
+  if (!o) return
+  const nodes = []
+  for (let k = 0; k < C.nodesPerProject; k++) nodes.push(makeNodeChoices(k))
+  S.project = { ...o, step: 0, nodes, score: 0, wins: 0, boss: pickBoss(o.type), log: [] }
+  go({ type: 'map' })
+}
+
+function makeNodeChoices(k) {
+  const kinds = [
+    { id: 'fight', weight: 38 }, { id: 'event', weight: 34 }, { id: 'rest', weight: 12 },
+    { id: 'shop', weight: 9 }, { id: 'elite', weight: S.projectNo >= 1 ? 9 : 0 },
+  ]
+  const out = []
+  let guard = 0
+  while (out.length < C.nodeChoices && guard++ < 30) {
+    const kd = weightedPick(kinds).id
+    if (out.includes(kd)) continue
+    if (k === 0 && kd === 'rest') continue
+    out.push(kd)
   }
-  go({ type: 'story', id: st.id })
+  return out
 }
 
-function pickResult(ch) {
-  if (!ch.results) return { text: ch.text, effects: ch.effects, memo: ch.memo, next: ch.next }
-  const ok = ch.results.filter((r) => test(r.when, S))
-  return weightedPick(ok.length ? ok : ch.results)
+function pickBoss(typeId) {
+  const tier = St.stageTier(S)
+  const pool = D.enemies.filter((e) => e.kind === 'boss' && e.tier <= tier && (!e.projects || e.projects.includes(typeId)))
+  const fallback = D.enemies.filter((e) => e.kind === 'boss' && e.tier <= tier)
+  return pickOne(pool.length ? pool : fallback).id
 }
 
-export function choose(i) {
-  const step = S.step
-  if (step?.type !== 'story') return
-  const st = storyById(step.id)
-  const ch = st.choices[i]
+function pickEnemy(kind) {
+  const tier = St.stageTier(S)
+  const pool = D.enemies.filter((e) => e.kind === kind && e.tier <= tier)
+  return weightedPick(pool.map((e) => ({ id: e.id, weight: e.tier === tier ? 3 : 1 }))).id
+}
+
+// ───────── 지도 ─────────
+export function chooseNode(i) {
+  const p = S.project
+  if (S.step.type !== 'map' || !p) return
+  if (p.step >= C.nodesPerProject) {
+    startCombat(S, p.boss, { source: 'boss' })
+    return go({ type: 'combat' })
+  }
+  const kind = p.nodes[p.step][i]
+  if (!kind) return
+  if (kind === 'fight' || kind === 'elite') {
+    startCombat(S, pickEnemy(kind === 'elite' ? 'elite' : 'normal'), { source: kind })
+    return go({ type: 'combat' })
+  }
+  if (kind === 'event') {
+    const ev = pickEvent()
+    if (ev) { S.seen[ev.id] = S.projectNo; return go({ type: 'event', id: ev.id }) }
+    startCombat(S, pickEnemy('normal'), { source: 'fight' })
+    return go({ type: 'combat' })
+  }
+  if (kind === 'shop') return go({ type: 'shop', stock: makeStock() })
+  if (kind === 'rest') return go({ type: 'rest', options: makeRest() })
+}
+
+function nodeDone() {
+  const p = S.project
+  p.step += 1
+  go({ type: 'map' })
+}
+
+// ───────── 사건 ─────────
+function pickEvent() {
+  const pool = D.events.filter((e) => S.seen[e.id] == null && test(e.when, S) && e.choices.some((c) => test(c.when, S)))
+  if (!pool.length) return null
+  const top = Math.max(...pool.map((e) => e.priority ?? 0))
+  return weightedPick(pool.filter((e) => (e.priority ?? 0) === top), (e) => e.weight ?? 1)
+}
+
+export const visibleChoices = (ev) => ev.choices.map((c, i) => ({ c, i })).filter(({ c }) => test(c.when, S))
+
+export function chooseEvent(i) {
+  if (S.step.type !== 'event') return
+  const ev = St.getEvent(S.step.id)
+  const ch = ev.choices[i]
   if (!ch || !test(ch.when, S)) return
-  if (ch.minigame) return go({ type: 'minigame', id: st.id, choice: i })
-  const res = pickResult(ch)
-  finishChoice(st, i, ch, res)
+  let res = ch
+  if (ch.results) {
+    const ok = ch.results.filter((r) => test(r.when, S))
+    res = weightedPick(ok.length ? ok : ch.results, (r) => r.weight ?? 1)
+  }
+  const notes = applyEffects(res.effects, S)
+  const memo = res.memo ?? ch.memo
+  if (memo) S.log.push({ age: S.age, title: ev.title, label: ch.label, memo })
+  go({ type: 'event_result', id: ev.id, choice: i, text: res.text, notes, fight: res.effects?.fight ?? null })
 }
 
-export function minigameDone(result) {
-  const step = S.step
-  if (step?.type !== 'minigame') return
-  const st = storyById(step.id)
-  const ch = st.choices[step.choice]
-  const res = ch.minigame.results?.[result.outcome] ?? { text: result.summary ?? '' }
-  finishChoice(st, step.choice, ch, res)
+// ───────── 상점·휴식 ─────────
+function makeStock() {
+  const tier = St.stageTier(S)
+  const pool = D.items.filter((it) => it.tier <= tier && !S.inventory.includes(it.id))
+  const stock = []
+  while (stock.length < C.shop.items && pool.length) {
+    const it = pool.splice(Math.floor(Math.random() * pool.length), 1)[0]
+    stock.push(it.id)
+  }
+  return stock
 }
 
-function finishChoice(st, i, ch, res) {
-  const logIdx = S.log.length
-  S.log.push({
-    t: S.t, age: S.age, story: st.id, title: render(st.title, S), label: render(ch.label, S),
-    memo: res.memo ?? ch.memo ?? null, pivotal: (ch.pivotal ?? 0) + (res.pivotal ?? 0), opened: 0,
-  })
-  const key = `${st.id}.${ch.id ?? i}`
-  S.chose[key] = S.t
-  S.origins[`chose:${key}`] = logIdx
+export function buyItem(id) {
+  if (S.step.type !== 'shop') return
+  const it = St.getItem(id)
+  if (!it || !S.step.stock.includes(id) || S.money < it.price) return
+  S.money -= it.price
   const notes = []
-  if (ch.results) notes.push(...applyEffects(ch.effects, S, logIdx))
-  notes.push(...applyEffects(res.effects, S, logIdx))
-  if (S.log[logIdx].memo) S.log[logIdx].memo = render(S.log[logIdx].memo, S)
-  const text = render(res.text, S)
-  const next = res.next ?? ch.next ?? null
-  const recap = next || S.pendingStage ? null : finishSeason()
-  go({ type: 'result', id: st.id, choice: i, text, notes, next, recap })
+  giveItem(S, id, notes)
+  go({ ...S.step, stock: S.step.stock.filter((x) => x !== id), notes })
 }
 
+export function buyPotion() {
+  if (S.step.type !== 'shop' || S.money < C.shop.potion.price) return
+  S.money -= C.shop.potion.price
+  S.hp = St.maxHp(S); S.mp = St.maxMp(S)
+  go({ ...S.step, potionBought: true, notes: [{ text: '❤️🧠 전부 회복', tone: 'good' }] })
+}
+
+const REST_OPTIONS = [
+  { id: 'eat', label: '🍱 밥 두 그릇 먹는다', desc: 'HP·MP 크게 회복', effects: {} , heal: 0.6 },
+  { id: 'talk', label: '🗣️ 선배들과 수다', desc: '조금 회복 · 처세 +2 · 경험치', effects: { routes: { social: 2 }, exp: 20 }, heal: 0.25 },
+  { id: 'gear', label: '🔧 장비를 손질한다', desc: '조금 회복 · 데이터 +2 · 경험치', effects: { routes: { data: 2 }, exp: 20 }, heal: 0.25 },
+  { id: 'workout', label: '💪 짐 옮기기 내기', desc: '조금 회복 · 근력 +2 · 경험치', effects: { routes: { muscle: 2 }, exp: 20 }, heal: 0.25 },
+  { id: 'monitor', label: '🎯 모니터 앞에서 공부', desc: '조금 회복 · 포커스 +2 · 경험치', effects: { routes: { focus: 2 }, exp: 20 }, heal: 0.25 },
+  { id: 'sketch', label: '📝 몰래 시나리오 구상', desc: '조금 회복 · 작가주의 +2 · 경험치', effects: { routes: { indie: 2 }, exp: 20 }, heal: 0.25 },
+  { id: 'sunset', label: '🌅 노을을 오래 본다', desc: '조금 회복 · 감각 +2 · 경험치', effects: { routes: { art: 2 }, exp: 20 }, heal: 0.25 },
+]
+function makeRest() {
+  const others = REST_OPTIONS.slice(1).sort(() => Math.random() - 0.5).slice(0, 2)
+  return ['eat', ...others.map((o) => o.id)]
+}
+export const restOption = (id) => REST_OPTIONS.find((o) => o.id === id)
+
+export function chooseRest(id) {
+  if (S.step.type !== 'rest' || !S.step.options.includes(id)) return
+  const o = restOption(id)
+  S.hp += St.maxHp(S) * o.heal
+  S.mp += St.maxMp(S) * o.heal
+  const notes = applyEffects(o.effects, S)
+  St.clampVitals(S)
+  notes.unshift({ text: '❤️ 회복', tone: 'good' })
+  go({ type: 'rest_done', notes, label: o.label })
+}
+
+// ───────── 전투 ─────────
+export function useSkill(id) {
+  if (S.step.type !== 'combat') return
+  combatUse(S, id)
+  const cb = S.combat
+  if (!cb.result) return go({ type: 'combat' })
+  finishCombat()
+}
+
+function finishCombat() {
+  const cb = S.combat
+  const p = S.project
+  const e = St.getEnemy(cb.enemy.id)
+  const af = St.getAffix(p?.affix)
+  const notes = []
+  const scale = 1 + 0.25 * S.projectNo
+  if (cb.result === 'win') {
+    const exp = gainExp(S, e.exp * scale * (af?.exp ?? 1))
+    const gold = Math.round(e.gold * (1 + 0.15 * S.projectNo))
+    S.money += gold
+    notes.push({ text: `📈 경험치 +${exp}`, tone: 'good' }, { text: `💰 +${gold}만`, tone: 'good' })
+    if (p) { p.score += e.kind === 'boss' ? 3 : e.kind === 'elite' ? 2 : 1; p.wins += 1 }
+    const drop = e.kind === 'boss' ? (Math.random() < 0.5 ? 'epic' : 'rare') : e.kind === 'elite' ? 'rare' : Math.random() < 0.15 ? 'common' : null
+    if (drop) { const id = rollItem(S, drop); if (id) giveItem(S, id, notes) }
+    // 이긴 방식도 성향으로 쌓임: 마지막에 쓴 스킬 속성
+  } else {
+    S.hp = Math.round(St.maxHp(S) * C.combat.lose.hp)
+    const lost = Math.round(Math.max(0, S.money) * C.combat.lose.moneyPct)
+    S.money -= lost
+    if (p) p.score -= e.kind === 'boss' ? 2 : 1
+    notes.push({ text: '🩹 촬영 지연… 그래도 현장은 계속된다', tone: 'bad' }, { text: `💰 -${lost}만`, tone: 'bad' })
+  }
+  S.combat.done = true
+  go({ type: 'combat_end', result: cb.result, enemy: cb.enemy, notes, source: cb.source })
+}
+
+// ───────── 진행 이어가기 (레벨업 → 전직 → 다음) ─────────
 export function proceed() {
-  const step = S.step
-  if (step?.type === 'result' && step.next) return play(step.next)
-  afterStory()
-}
-
-function afterStory() {
-  if (S.pendingStage) return beginStage(S.pendingStage)
-  if (S.stage === 'intro') return beginStage('student')
-  if (S.action) {
-    // 이야기 체인 도중 시즌이 끝나지 않은 경우 (next 뒤에 pendingStage 등)
-    const recap = finishSeason()
-    return go({ type: 'recap', text: '', recap })
+  const t = S.step.type
+  if (t === 'event_result' && S.step.fight) {
+    startCombat(S, S.step.fight, { source: 'event' })
+    return go({ type: 'combat' })
   }
-  startSeason()
+  if (t === 'combat_end' && S.step.source === 'boss') return finishProject()
+  if (t === 'result') return flush('offers')
+  if (['event_result', 'combat_end', 'rest_done', 'shop'].includes(t)) return flush('node')
+  if (t === 'levelup_done' || t === 'jobchange_done') return flush(S.step.cont)
 }
 
-function beginStage(stage) {
-  S.pendingStage = null
-  if (stage === 'student') {
-    const sc = St.getSchool(S.school)
-    S.stage = 'student'
-    S.seasonIdx = 0
-    S.studentLeft = (sc?.years ?? 0) * C.seasons.student.length
-    if (S.studentLeft <= 0) return beginStage('career')
-    return startSeason()
-  }
-  if (stage === 'career') {
-    S.stage = 'career'
-    S.seasonIdx = 0
-    S.careerT = 0
-    return play(C.careerStartStorylet)
-  }
+function flush(cont) {
+  if (S.pendingLevels > 0) return levelUp(cont)
+  const jc = jobChangeCandidates()
+  if (jc) return go({ type: 'jobchange', cont, ...jc })
+  S.combat = null
+  if (cont === 'node') return nodeDone()
+  if (cont === 'offers') return showOffers()
 }
 
-// ───────── 시즌 ─────────
-function startSeason() {
-  if (S.stage === 'career' && S.age >= C.endAge) return endRun()
-  go({ type: 'season' })
-}
-
-export const availableActions = () => D.actions.filter((a) => a.stage === S.stage && test(a.when, S))
-
-function makeTitle() {
-  const t = pickOne(D.names.titles)
-  const b = pickOne(D.names.brands)
-  const track = St.getTrack(S.track)
-  const tpl = track ? pickOne(track.projectNames) : '〈{t}〉'
-  return { title: `〈${t}〉`, project: tpl.replace('{t}', t).replace('{b}', b) }
-}
-
-export function chooseAction(id) {
-  if (S.step?.type !== 'season') return
-  const a = availableActions().find((x) => x.id === id)
-  if (!a) return
-  S.action = id
+function levelUp(cont) {
+  S.pendingLevels -= 1
   const job = St.jobOf(S)
-  const names = makeTitle()
-  S.seasonTitle = a.work && job?.kind !== 'own' ? names.project : names.title
-  S.seasonFilm = null
-  if (a.work && job && job.kind !== 'own') {
-    S.film.push({ age: S.age, title: S.seasonTitle, role: job.name, note: '' })
-    S.seasonFilm = S.film.length - 1
-  }
-  const st = pickStory(id)
-  if (st) return play(st.id)
-  const text = pickQuiet(a)
-  const recap = finishSeason()
-  go({ type: 'recap', text, recap })
+  const gains = { ...(job?.growth ?? {}) }
+  for (const [k, v] of Object.entries(gains)) S.base[k] += v
+  S.hp += St.maxHp(S) * C.levelUpHeal
+  S.mp += St.maxMp(S) * C.levelUpHeal
+  St.clampVitals(S)
+  const lv = S.level - S.pendingLevels
+  go({ type: 'levelup', cont, level: lv, gains, choices: skillChoices() })
 }
 
-function pickQuiet(a) {
-  const used = (S.quietUsed[a.id] ??= [])
-  const pool = (a.quiet ?? []).map((q, i) => i).filter((i) => !used.includes(i))
-  if (!pool.length) return render('별다른 일 없이 한 시즌이 지나갔다.', S)
-  const i = pickOne(pool)
-  used.push(i)
-  return render(a.quiet[i], S)
+function skillAllowed(sk) {
+  if (sk.basic) return false
+  if ((S.skills[sk.id] ?? 0) >= 3) return false
+  const r = sk.req ?? {}
+  if (r.level && S.level < r.level) return false
+  if (r.tierMin && St.tierOf(S) < r.tierMin) return false
+  if (r.jobs && !r.jobs.includes(S.job)) return false
+  if (r.routes && !test({ routes: r.routes }, S)) return false
+  return true
 }
 
-function finishSeason() {
-  const a = St.getAction(S.action)
-  if (!a) return null
-  const lines = [{ label: '이번 시즌', value: `${a.emoji ?? ''} ${a.name}` }]
-  const before = S.money
-  const notes = applyEffects(a.effects, S, null).filter((n) => !n.text.startsWith('💰'))
-  const job = St.jobOf(S)
-  if (a.work && job) {
-    const mul = job.kind === 'own' ? 1 : St.getTrack(S.track)?.payMul ?? 1
-    const pay = Math.round((randInt(job.pay[0], job.pay[1]) * mul) / 10) * 10
-    S.money += pay
-    S.exp[job.field] = (S.exp[job.field] ?? 0) + 1
-    lines.push({ label: job.kind === 'own' ? '수입' : '페이', value: `+${pay.toLocaleString()}만`, tone: 'good' })
+function skillChoices() {
+  const pool = D.skills.filter(skillAllowed)
+  const top = St.topRoutes(S, 2).map((r) => r.id)
+  const picks = []
+  while (picks.length < C.skillChoices && picks.length < pool.length) {
+    const p = weightedPick(pool.filter((x) => !picks.includes(x.id)), (x) =>
+      (x.req?.jobs ? 4 : 1) * (S.skills[x.id] ? 1.2 : 2) * (top.includes(x.route) ? 1.5 : 1))
+    picks.push(p.id)
   }
-  if (a.film) {
-    const title = render(a.film.format, S).replace('{t}', S.seasonTitle.replace(/[〈〉]/g, ''))
-    S.film.push({ age: S.age, title, role: render(a.film.role, S), note: '' })
-  }
-  if (S.stage === 'career') {
-    const cost = St.hasFlag(S, 'at_home') ? C.homeLivingCost : C.livingCost
-    S.money -= cost
-    lines.push({ label: St.hasFlag(S, 'at_home') ? '생활비(본가)' : '생활비', value: `-${cost}만`, tone: 'bad' })
-  } else if (S.stage === 'student') {
-    const v = C.studentAllowance[St.traitBand(S, 'wealth')]
-    S.money += v
-    lines.push({ label: v >= 0 ? '용돈' : '생활비', value: `${v >= 0 ? '+' : ''}${v}만`, tone: v >= 0 ? 'good' : 'bad' })
-  }
-  const delta = S.money - before
-  if (S.seasonFilm != null) lines.push({ label: '필모', value: S.film[S.seasonFilm].title })
-  lines.push({ label: '통장', value: `${S.money.toLocaleString()}만 (${delta >= 0 ? '+' : ''}${delta.toLocaleString()})`, tone: S.money < 0 ? 'bad' : '' })
-
-  const ageBefore = S.age
-  advanceTime()
-  S.action = null
-  S.seasonFilm = null
-  return { lines, notes, birthday: S.age > ageBefore ? S.age : null }
+  return picks
 }
 
-function advanceTime() {
-  S.t += 1
-  const per = S.stage === 'student' ? C.seasons.student.length : C.seasons.career.length
-  S.seasonIdx += 1
-  if (S.stage === 'career') S.careerT += 1
-  if (S.seasonIdx >= per) { S.seasonIdx = 0; S.age += 1 }
-  if (S.stage === 'student') {
-    S.studentLeft -= 1
-    if (S.studentLeft <= 0) S.pendingStage = 'career'
+export function chooseSkill(id) {
+  if (S.step.type !== 'levelup') return
+  const notes = []
+  if (id === '__stat') {
+    const k = pickOne(['str', 'tec', 'sen', 'cha'])
+    S.base[k] += 2
+    notes.push({ text: `${St.STAT_ICONS[k]} ${St.STAT_NAMES[k]} +2`, tone: 'good' })
+  } else {
+    if (!S.step.choices.includes(id)) return
+    learnSkill(S, id, notes)
+    const r = St.getRoute(St.getSkill(id).route)
+    notes.push({ text: `${r.icon} ${r.name} +2`, tone: 'route' })
   }
+  S.toast = notes
+  flush(S.step.cont)
+}
+
+// 전직
+function jobScore(j) {
+  return Object.entries(j.affinity ?? {}).reduce((a, [k, w]) => a + (S.routes[k] ?? 0) * w, 0)
+}
+
+export function jobChangeCandidates() {
+  const cur = St.jobOf(S)
+  const next = cur.tier + 1
+  const need = C.jobTierLevels[next]
+  if (!need || S.level < need) return null
+  const fromOk = (j) => j.from === 'any' || asList(j.from).includes(cur.id)
+  const all = D.jobs.filter((j) => j.tier === next && fromOk(j))
+  const open = all.filter((j) => test(j.when, S)).sort((a, b) => jobScore(b) - jobScore(a))
+  const locked = all.filter((j) => !test(j.when, S)).sort((a, b) => jobScore(b) - jobScore(a))
+  if (!open.length) return null
+  return { open: open.slice(0, 4).map((j) => j.id), locked: locked.slice(0, 3).map((j) => j.id), tier: next }
+}
+
+export function chooseJob(id) {
+  if (S.step.type !== 'jobchange' || !S.step.open.includes(id)) return
+  const prev = St.jobOf(S)
+  S.job = id
+  S.jobHistory.push({ job: id, level: S.level, age: S.age })
+  const j = St.jobOf(S)
+  S.log.push({ age: S.age, title: `Lv${S.level} 전직`, label: `${prev.name} → ${j.name}`, memo: null, job: true })
+  S.hp = St.maxHp(S); S.mp = St.maxMp(S)
+  go({ type: 'jobchange_done', cont: S.step.cont, job: id })
+}
+
+// ───────── 정산 ─────────
+function finishProject() {
+  const p = S.project
+  const type = St.getType(p.type)
+  const af = St.getAffix(p.affix)
+  const grade = C.grades.find((g) => p.score >= g.min)
+  const pay = Math.round(p.pay * grade.mul)
+  const fame = Math.round(type.fame * grade.mul * (af?.fame ?? 1))
+  const expGain = gainExp(S, (40 + 18 * S.projectNo) * grade.mul * (af?.exp ?? 1))
+  S.money += pay
+  S.fame += fame
+  const notes = applyEffects({ routes: p.routes, flags: af?.flags }, S)
+  S.film.push({ age: S.age, title: p.name, grade: grade.id, job: St.jobOf(S).name })
+  S.projectNo += 1
+  S.age += C.yearsPerProject
+  S.hp = St.maxHp(S); S.mp = St.maxMp(S)
+  const result = { name: p.name, grade: grade.id, pay, fame, exp: expGain, notes, score: p.score }
+  S.project = null
+  S.combat = null
+  go({ type: 'result', result })
 }
 
 // ───────── 엔딩 ─────────
 function endRun() {
-  S.stage = 'ended'
-  const ending = buildEnding(S)
-  const { isNew } = Save.recordEnding(ending.dexKey, S.age)
+  const job = St.jobOf(S)
+  const final = job.tier === 4
+  const { isNew } = final ? Save.recordEnding(job.id, S.age) : { isNew: false }
   Save.clearRun()
-  S.step = { type: 'ending', ending, isNew }
+  S.step = {
+    type: 'ending', job: job.id, final, isNew,
+    routes: St.topRoutes(S, 3),
+    memos: S.log.filter((l) => l.memo).slice(-6).slice(0, 3),
+  }
   listener(S.step, S)
 }
+
+// 디버그·시뮬레이터용
+export const _internal = { jobScore }

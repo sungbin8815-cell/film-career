@@ -1,25 +1,17 @@
-// 타고난 자질 4개. 성공 확률이 아니라 "어떤 선택지가 보이는지"를 정합니다.
-// keyHigh / keyLow: 이 자질 때문에 열린 선택지에 붙는 열쇠 표시
-// high / mid / low: 기록 화면에 보이는 문장
+// 시작 특성: 판마다 3개가 제시되고 1개를 고릅니다.
+// unlock: 이 엔딩(최종 직업 id)을 한 번 보면 후보에 추가됨. 없으면 처음부터 가능.
 export default [
-  { id: 'stamina', name: '체력', icon: '💪',
-    keyHigh: '튼튼한 몸', keyLow: '쉽게 지치는 몸',
-    high: '몸 하나는 타고났다. 밤샘도 장비도 겁나지 않는다.',
-    mid: '평범한 체력. 무리하면 티가 난다.',
-    low: '쉽게 지친다. 대신 머리를 굴려 몸을 아낀다.' },
-  { id: 'sense', name: '감각', icon: '👁️',
-    keyHigh: '좋은 눈', keyLow: '배우는 눈',
-    high: '프레임을 보는 눈이 있다. 사람들이 의견을 묻는다.',
-    mid: '좋은 것과 나쁜 것은 구분한다.',
-    low: '감은 없다. 그래서 잘하는 사람을 열심히 따라 한다.' },
-  { id: 'skill', name: '기술', icon: '🔧',
-    keyHigh: '좋은 손', keyLow: '서툰 손',
-    high: '기계를 만지면 손이 먼저 움직인다.',
-    mid: '매뉴얼을 보면 대부분 해낸다.',
-    low: '기계엔 약하다. 대신 도와줄 사람을 잘 찾는다.' },
-  { id: 'wealth', name: '재력', icon: '💰',
-    keyHigh: '넉넉한 집', keyLow: '빠듯한 살림',
-    high: '집이 넉넉하다. 돈 걱정 없이 하고 싶은 걸 찍을 수 있다.',
-    mid: '크게 어렵진 않지만 넉넉하지도 않다.',
-    low: '용돈은 스스로 번다. 그래서 일찍 현장을 안다.' },
+  { id: 'athlete', name: '체육 특기생', emoji: '🏃', desc: '체력과 근력이 좋다', effects: { stats: { hp: 20, str: 2 }, routes: { muscle: 3 } } },
+  { id: 'cinephile', name: '영화광', emoji: '🍿', desc: '1년에 300편을 본다', effects: { stats: { sen: 2 }, routes: { art: 3, indie: 1 } } },
+  { id: 'engineer', name: '공대 출신', emoji: '🔌', desc: '기계를 뜯어봐야 직성이 풀린다', effects: { stats: { tec: 2 }, routes: { data: 3 } } },
+  { id: 'insider', name: '인싸', emoji: '🥂', desc: '전화번호부가 두껍다', effects: { stats: { cha: 2 }, routes: { social: 3 } } },
+  { id: 'rich', name: '금수저', emoji: '🥄', desc: '통장이 든든하다', effects: { money: 700, routes: { money: 2 } } },
+  { id: 'poor', name: '흙수저', emoji: '🪨', desc: '잃을 게 없다. 경험치 +15%', effects: { money: -80, flags: ['hungry'], routes: { rebel: 2 } } },
+  { id: 'artschool', name: '예술학교 출신', emoji: '🎓', desc: '단편으로 상을 받아봤다', effects: { stats: { sen: 1 }, routes: { indie: 3, art: 1 }, flags: ['short_award'] } },
+  { id: 'youtuber', name: '유튜버 출신', emoji: '📱', desc: '혼자 찍고 혼자 붙여봤다', effects: { stats: { tec: 1, cha: 1 }, routes: { social: 1, data: 1 }, flags: ['youtube'] } },
+  // ── 엔딩으로 해금 ──
+  { id: 'focus_born', name: '포커스 천재', emoji: '🎯', desc: '움직이는 것도 놓치지 않는다', unlock: 'eternal_first', effects: { stats: { sen: 2, tec: 1 }, routes: { focus: 4 } } },
+  { id: 'gear_heir', name: '렌탈샵 집 자식', emoji: '🧰', desc: '장비를 장난감처럼 갖고 놀았다', unlock: 'rental_ceo', effects: { items: ['old_tripod', 'nd_filter'], routes: { data: 2, money: 2 } } },
+  { id: 'union_kid', name: '노조 2세', emoji: '✊', desc: '근로계약서부터 읽는다', unlock: 'union_leader', effects: { stats: { cha: 2 }, routes: { rebel: 4 } } },
+  { id: 'wedding_kid', name: '웨딩홀 집 자식', emoji: '💒', desc: '주말마다 예식장에서 자랐다', unlock: 'wedding_ceo', effects: { flags: ['wedding'], routes: { money: 2, social: 2 } } },
 ]
