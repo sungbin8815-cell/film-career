@@ -33,7 +33,19 @@ export default {
   },
 
   rest: { heal: 0.5 },
-  shop: { items: 3, potion: { name: '박카스 한 박스', price: 60, heal: 1 } },
+  shop: { items: 3, potion: { name: '박카스', price: 45, heal: 0.5, mana: 0.4 } },  // 가방에 넣어 전투 중 사용
+  startBag: 2,
+
+  // 지도 칸 비중: 시뮬레이션(사건) 중심. fight = 1대다수 액션, elite·boss = 1대1 턴제
+  nodeWeights: { event: 44, fight: 26, elite: 9, rest: 12, shop: 9 },
+
+  // 1대다수 액션 전투
+  action: {
+    count: { base: 3, perProject: 0.5, max: 8 },   // 무리 수
+    mobHp: 0.42, mobAtk: 0.45,                     // 1대1 능력치 대비 배율
+    timeLimit: 75,                                 // 초. 넘기면 촬영 지연
+    mpRegen: 1.5,                                  // 초당
+  },
 
   // 작품 평가: 점수 → 등급 (보상 배수)
   grades: [

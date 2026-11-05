@@ -31,6 +31,8 @@ export function newRun() {
     hp: C.startStats.hp,
     mp: C.startStats.mp,
     skills: {},
+    moves: [],        // 전투에 들고 가는 기술 (기본기 외 최대 3개)
+    bag: { bacchus: C.startBag ?? 0 },
     routes: Object.fromEntries(D.routes.map((r) => [r.id, 0])),
     flags: {},
     money: C.startMoney,

@@ -3,7 +3,8 @@ import D from '../data/index.js'
 import * as E from './engine.js'
 import * as St from './state.js'
 import { keysOf } from './conditions.js'
-import { skillList, previewPower } from './combat.js'
+import { skillList, moveList, previewPower } from './combat.js'
+import { runAction } from './action.js'
 import * as Save from './save.js'
 import { h } from './dom.js'
 
@@ -64,8 +65,13 @@ function sheet(s) {
     h('section', { class: 'panel' }, h('h3', {}, '성향 (전직 루트를 가름)'),
       D.routes.map((r) => h('div', { class: 'rrow' }, h('span', {}, `${r.icon} ${r.name}`),
         h('div', { class: 'bar route' }, h('i', { style: `width:${(100 * s.routes[r.id]) / maxR}%` }), h('span', {}, s.routes[r.id]))))),
-    h('section', { class: 'panel' }, h('h3', {}, '스킬'),
-      h('ul', { class: 'skl' }, skillList(s).map((k) => h('li', {}, h('b', {}, `${k.emoji} ${k.name}`), ` Lv${k.lv} · MP ${k.mp}`, h('small', {}, k.desc))))),
+    h('section', { class: 'panel' }, h('h3', {}, `스킬 · 전투 편성 ${s.moves.length}/3`),
+      h('p', { class: 'muted' }, '편성한 기술만 전투에 들고 간다 (기본기는 항상).'),
+      h('ul', { class: 'skl' }, skillList(s).map((k) => h('li', {},
+        h('div', { class: 'skrow' }, h('b', {}, `${k.emoji} ${k.name} Lv${k.lv}`),
+          k.basic ? h('em', { class: 'tag' }, '기본기') : btn(s.moves.includes(k.id) ? '⚔️ 편성됨' : '편성', () => { E.toggleMove(k.id); sheet(s) }, `mini ${s.moves.includes(k.id) ? 'on' : ''}`, !s.moves.includes(k.id) && s.moves.length >= 3)),
+        h('small', {}, `${St.getRoute(k.route).icon} MP ${k.mp} · ${k.desc}`))))),
+    h('section', { class: 'panel' }, h('h3', {}, '가방'), h('p', {}, `🧃 ${C.shop.potion.name} × ${s.bag.bacchus}`)),
     h('section', { class: 'panel' }, h('h3', {}, '장비'),
       ['tool', 'gear'].map((slot) => {
         const it = St.getItem(s.equip[slot])
@@ -157,7 +163,7 @@ const V = {
     const af = St.getAffix(p.affix)
     const boss = St.getEnemy(p.boss)
     const atBoss = p.step >= C.nodesPerProject
-    const NODE = { fight: ['⚔️', '현장 문제', '전투'], elite: ['💀', '대형 사고', '강한 전투 · 좋은 보상'], event: ['❓', '사건', '선택에 따라 루트가 갈린다'],
+    const NODE = { fight: ['⚔️', '현장 난전', '1대다수 액션 · 조이스틱으로 싸운다'], elite: ['💀', '강적', '1대1 턴제 · 좋은 보상'], event: ['❓', '사건', '선택에 따라 루트가 갈린다'],
       shop: ['🛒', '렌탈샵', '장비 구매'], rest: ['🍱', '밥차', '회복 · 수련'] }
     const dots = [...Array(C.nodesPerProject).keys()].map((k) => h('i', { class: k < p.step ? 'done' : k === p.step ? 'cur' : '' }))
     dots.push(h('i', { class: `boss ${atBoss ? 'cur' : ''}` }, '👑'))
@@ -167,32 +173,19 @@ const V = {
       h('div', { class: 'path' }, dots),
       atBoss
         ? h('div', { class: 'stack' }, h('p', {}, '크랭크업 날. 마지막 관문이 기다린다.'),
-          btn(h('span', {}, `👑 ${boss.emoji} ${boss.name}`), () => E.chooseNode(0), 'primary big'))
+          btn(h('span', {}, `👑 ${boss.emoji} ${boss.name} · 1대1`), () => E.chooseNode(0), 'primary big'))
         : h('div', { class: 'stack' }, h('p', { class: 'muted' }, '어느 쪽으로 갈까?'),
           p.nodes[p.step].map((kind, i) => { const [ic, nm, ds] = NODE[kind]; return h('button', { class: `card node n-${kind}`, onclick: () => E.chooseNode(i) }, h('b', {}, `${ic} ${nm}`), h('span', { class: 'muted' }, ds)) })),
       h('p', { class: 'muted center' }, `현재 작품 평가: ${'★'.repeat(Math.max(0, Math.min(5, p.score)))}${'☆'.repeat(Math.max(0, 5 - Math.max(0, p.score)))}`)))
   },
 
-  combat: (step, s) => {
-    const cb = s.combat
-    const e = cb.enemy
-    const weakIcons = e.weak.map((r) => St.getRoute(r).icon).join('')
-    screen(h('main', { class: 'combat' },
-      h('h2', { class: 'sr-only' }, '전투'),
-      h('div', { class: `foe k-${e.kind}` },
-        h('div', { class: 'foe-emoji' }, e.emoji),
-        h('div', { class: 'foe-info' }, h('b', {}, `${e.kind === 'boss' ? '👑 ' : e.kind === 'elite' ? '💀 ' : ''}${e.name}`), bar(e.hp, e.max, 'foe-hp'),
-          h('small', {}, `약점 ${weakIcons || '-'}${cb.charging ? ' · ⚠️ 큰 공격 준비 중' : ''}${cb.foeWeakTurns ? ' · 약화됨' : ''}`))),
-      h('div', { class: 'clog', 'aria-live': 'polite' }, cb.log.slice(-4).map((l) => h('p', {}, l))),
-      h('div', { class: 'me' }, h('b', {}, `${St.jobOf(s).emoji} Lv${s.level} ${St.jobOf(s).name}`), bar(s.hp, St.maxHp(s), 'hp'), bar(s.mp, St.maxMp(s), 'mp'),
-        cb.dmgTurns ? h('small', {}, `🔥 피해 +${Math.round(cb.dmgBuff * 100)}% (${cb.dmgTurns}턴)`) : null, cb.guard ? h('small', {}, `🛡️ 막기 ${cb.guard}%`) : null),
-      h('div', { class: 'skills' }, skillList(s).map((k) => {
-        const r = St.getRoute(k.route)
-        const can = s.mp >= (k.mp ?? 0)
-        const hint = ['attack', 'gold', 'stun'].includes(k.type) ? `위력 ${previewPower(s, k)}${k.hits ? `×${k.hits}` : ''}` : { heal: '회복', mana: 'MP 회복', guard: '막기', buff: '강화', debuff: '약화' }[k.type]
-        return h('button', { class: `btn skill ${e.weak.includes(k.route) ? 'weak' : ''}`, disabled: !can, onclick: () => E.useSkill(k.id) },
-          h('span', {}, `${k.emoji} ${k.name}${k.lv > 1 ? ` ${k.lv}` : ''}`), h('small', {}, `${r.icon} ${hint} · MP${k.mp}`))
-      }))))
+  combat: (step, s) => battle(step, s),
+
+  action: (step, s) => {
+    const root = h('div', { class: 'act-root' })
+    app.replaceChildren(root)
+    window.scrollTo(0, 0)
+    runAction(root, s.actionSetup, (res) => E.actionDone(res))
   },
 
   combat_end: (step, s) => {
@@ -239,7 +232,7 @@ const V = {
           h('b', { class: `r-${it.rarity}` }, `${it.slot === 'tool' ? '🛠️' : '🦺'} ${it.name} [${RARITY[it.rarity]}]`),
           h('span', { class: 'muted' }, itemLine(it)), h('span', {}, `💰 ${it.price}만`))
       }),
-      step.potionBought ? null : btn(`🧃 ${C.shop.potion.name} — HP·MP 전부 회복 (${C.shop.potion.price}만)`, () => E.buyPotion(), '', s.money < C.shop.potion.price),
+      btn(`🧃 ${C.shop.potion.name} +1 — 전투 중 회복 (가방 ${s.bag.bacchus}) · ${C.shop.potion.price}만`, () => E.buyPotion(), '', s.money < C.shop.potion.price),
       btn('나간다', () => E.proceed(), 'primary'))))
   },
 
@@ -333,6 +326,125 @@ const V = {
       h('p', { class: 'center muted' }, `도감 ${finals.filter((x) => dex[x.id]).length}/${finals.length}`),
       h('div', { class: 'stack' }, btn('▶ 다시 시작', () => E.newGame(), 'primary'), btn('📖 도감', () => V.dex()), btn('처음으로', () => V.title()))))
   },
+}
+
+
+// ───────── 1대1 턴제 (포켓몬식) ─────────
+let B = { combat: null, shown: 0, timer: 0, menu: 'main' }
+
+function battle(step, s) {
+  const cb = s.combat
+  if (B.combat !== cb.enemy || !app.querySelector('.pk')) {
+    if (B.combat !== cb.enemy) B = { combat: cb.enemy, shown: 0, timer: 0, menu: 'main' }
+    buildBattle(s)
+  }
+  B.menu = 'main'
+  playLog(step, s)
+}
+
+function buildBattle(s) {
+  const e = s.combat.enemy
+  const job = St.jobOf(s)
+  const box = (cls, name, lv, withNum) => h('div', { class: `pk-box ${cls}` },
+    h('div', { class: 'pk-name' }, h('b', {}, name), h('span', {}, `Lv${lv}`)),
+    h('div', { class: 'pk-hp' }, h('em', {}, 'HP'), h('div', { class: 'bar hp' }, h('i'), withNum ? h('span') : null)),
+    withNum ? h('div', { class: 'pk-mp' }, h('em', {}, 'MP'), h('div', { class: 'bar mp' }, h('i'), h('span'))) : null)
+  const field = h('div', { class: `pk-field k-${e.kind}` },
+    box('foe', `${e.kind === 'boss' ? '👑 ' : ''}${e.name}`, e.level, false),
+    h('div', { class: 'pk-foe-spr' }, h('span', {}, e.emoji)),
+    h('div', { class: 'pk-me-spr' }, h('span', {}, job.emoji)),
+    box('me', job.name, s.level, true))
+  const msg = h('div', { class: 'pk-msg', 'aria-live': 'polite', onclick: () => skipMsg() }, h('p'))
+  const menu = h('div', { class: 'pk-menu' })
+  app.replaceChildren(h('main', { class: 'pk' }, h('h2', { class: 'sr-only' }, '1대1 전투'), field, msg, menu))
+}
+
+function setBars(s, snap) {
+  const e = s.combat.enemy
+  const foeHp = snap ? snap.foeHp : e.hp
+  const meHp = snap ? snap.meHp : s.hp
+  const meMp = snap ? snap.meMp : s.mp
+  const fb = app.querySelector('.pk-box.foe .bar.hp i')
+  if (!fb) return
+  fb.style.width = `${(100 * foeHp) / e.max}%`
+  fb.parentElement.classList.toggle('low', foeHp / e.max < 0.25)
+  const mb = app.querySelector('.pk-box.me .bar.hp')
+  mb.querySelector('i').style.width = `${(100 * meHp) / St.maxHp(s)}%`
+  mb.classList.toggle('low', meHp / St.maxHp(s) < 0.25)
+  mb.querySelector('span').textContent = `${Math.max(0, Math.round(meHp))}/${St.maxHp(s)}`
+  const mp = app.querySelector('.pk-box.me .bar.mp')
+  mp.querySelector('i').style.width = `${(100 * meMp) / St.maxMp(s)}%`
+  mp.querySelector('span').textContent = `${Math.round(meMp)}/${St.maxMp(s)}`
+}
+
+function shake(sel) {
+  const el = app.querySelector(sel)
+  if (!el) return
+  el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit')
+}
+
+function playLog(step, s) {
+  const cb = s.combat
+  const msg = app.querySelector('.pk-msg p')
+  const menu = app.querySelector('.pk-menu')
+  menu.replaceChildren()
+  clearTimeout(B.timer)
+  if (B.shown === 0) setBars(s, cb.log[0])
+  const next = () => {
+    if (B.shown < cb.log.length) {
+      const line = cb.log[B.shown++]
+      msg.textContent = line.t
+      setBars(s, line)
+      if (line.fx === 'foe') shake('.pk-foe-spr')
+      if (line.fx === 'me') shake('.pk-me-spr')
+      B.timer = setTimeout(next, line.fx ? 720 : 620)
+      B.skip = () => { clearTimeout(B.timer); next() }
+      return
+    }
+    B.skip = null
+    if (step.ended) {
+      const e = cb.enemy
+      if (cb.result === 'win') app.querySelector('.pk-foe-spr')?.classList.add('faint')
+      B.timer = setTimeout(() => E.combatFinish(), 700)
+      return
+    }
+    showMenu(s)
+  }
+  next()
+}
+
+function skipMsg() { if (B.skip) B.skip() }
+
+function showMenu(s) {
+  const cb = s.combat
+  const msg = app.querySelector('.pk-msg p')
+  const menu = app.querySelector('.pk-menu')
+  const job = St.jobOf(s)
+  if (B.menu === 'main') {
+    msg.textContent = `${job.name}은(는) 무엇을 할까?`
+    menu.replaceChildren(
+      btn('⚔️ 싸운다', () => { B.menu = 'fight'; showMenu(s) }, 'pk-cmd'),
+      btn(`🎒 가방 (${s.bag.bacchus})`, () => E.useBag(), 'pk-cmd', !(s.bag.bacchus > 0)),
+      btn('🔍 살펴보기', () => {
+        const e = cb.enemy
+        const w = e.weak.map((r) => `${St.getRoute(r).icon}${St.getRoute(r).name}`).join(', ') || '없음'
+        const rs = e.resist.map((r) => `${St.getRoute(r).icon}${St.getRoute(r).name}`).join(', ') || '없음'
+        msg.textContent = `${e.name} — 약점: ${w} / 내성: ${rs}${cb.charging ? ' · 큰 공격을 준비 중!' : ''}`
+      }, 'pk-cmd'),
+      btn('🏃 도망친다', () => E.flee(), 'pk-cmd', !cb.canFlee))
+  } else {
+    msg.textContent = '어떤 기술을 쓸까?'
+    const moves = moveList(s)
+    menu.replaceChildren(
+      ...moves.map((k) => {
+        const r = St.getRoute(k.route)
+        const hint = ['attack', 'gold', 'stun'].includes(k.type) ? `위력 ${previewPower(s, k)}${k.hits ? `×${k.hits}` : ''}` : { heal: '회복', mana: 'MP 회복', guard: '막기', buff: '강화', debuff: '약화' }[k.type]
+        return h('button', { class: `btn pk-move ${cb.enemy.weak.includes(k.route) ? 'weak' : ''}`, disabled: s.mp < (k.mp ?? 0), onclick: () => E.useSkill(k.id) },
+          h('span', {}, `${k.emoji} ${k.name}`), h('small', {}, `${r.icon}${r.name} · ${hint} · MP ${k.mp}`))
+      }),
+      ...Array(Math.max(0, 4 - moves.length)).fill(0).map(() => h('button', { class: 'btn pk-move', disabled: true }, h('span', {}, '—'), h('small', {}, '📒에서 편성'))),
+      btn('← 뒤로', () => { B.menu = 'main'; showMenu(s) }, 'pk-back'))
+  }
 }
 
 function draw(step, s) {

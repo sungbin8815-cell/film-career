@@ -153,3 +153,67 @@ ul, ol { margin: 0; padding-left: 18px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 @media (max-width: 370px) { body { font-size: 14px; } .foe-emoji { font-size: 44px; } }
+
+/* ───── 1대1 턴제 (포켓몬식) ───── */
+.pk { gap: 0; }
+.pk-field { position: relative; height: 300px; border: var(--px) solid var(--line); overflow: hidden;
+  background: linear-gradient(#8fd3ff 0 46%, #a8e07a 46% 100%); }
+.pk-field.k-boss { background: linear-gradient(#3a2456 0 46%, #6b4a3a 46% 100%); }
+.pk-field.k-elite { background: linear-gradient(#ffb37a 0 46%, #c9b46a 46% 100%); }
+.pk-foe-spr, .pk-me-spr { position: absolute; display: grid; place-items: end center; }
+.pk-foe-spr { right: 18px; top: 50px; width: 130px; height: 110px; }
+.pk-foe-spr::before, .pk-me-spr::before { content: ''; position: absolute; bottom: 0; left: 10%; right: 10%; height: 22px; border-radius: 50%; background: rgba(0, 0, 0, 0.18); }
+.pk-foe-spr span { position: relative; font-size: 76px; line-height: 1; margin-bottom: 8px; }
+.pk-me-spr { left: 14px; bottom: 6px; width: 150px; height: 130px; }
+.pk-me-spr span { position: relative; font-size: 96px; line-height: 1; margin-bottom: 4px; transform: scaleX(-1); }
+.pk-box { position: absolute; background: #f8f4e6; color: #1b1a26; border: var(--px) solid var(--line); padding: 6px 8px; width: 58%;
+  box-shadow: var(--px) var(--px) 0 var(--line); display: flex; flex-direction: column; gap: 3px; }
+.pk-box.foe { left: 10px; top: 10px; }
+.pk-box.me { right: 10px; bottom: 12px; width: 56%; }
+.pk-name { display: flex; justify-content: space-between; font-size: 13px; gap: 6px; }
+.pk-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-hp, .pk-mp { display: flex; align-items: center; gap: 4px; }
+.pk-hp em, .pk-mp em { font-style: normal; font-size: 10px; font-weight: 700; color: #b8860b; }
+.pk-box .bar { flex: 1; height: 12px; background: #4a4a4a; }
+.pk-box .bar i { background: #3cc75a; transition: width 0.45s ease-out; }
+.pk-box .bar.low i { background: #e94b3c; }
+.pk-box .bar.mp i { background: #3c8fe9; }
+.pk-box .bar span { font-size: 9px; line-height: 8px; }
+.pk-msg { background: #f8f4e6; color: #1b1a26; border: var(--px) solid var(--line); border-top: 0; min-height: 76px; padding: 12px 14px; font-size: 15px; cursor: pointer; }
+.pk-menu { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.btn.pk-cmd { min-height: 56px; font-weight: 700; align-items: center; }
+.btn.pk-move { min-height: 64px; padding: 8px 10px; }
+.btn.pk-move span { font-size: 13px; font-weight: 700; }
+.btn.pk-move small { font-size: 10px; }
+.btn.pk-move.weak { border-color: var(--accent); }
+.btn.pk-back { grid-column: 1 / -1; min-height: 44px; align-items: center; }
+.hit { animation: pkhit 0.4s steps(4); }
+@keyframes pkhit { 0%, 100% { transform: translateX(0); opacity: 1 } 25% { transform: translateX(-8px); opacity: 0.3 } 50% { opacity: 1 } 75% { transform: translateX(8px); opacity: 0.3 } }
+.faint span { transition: transform 0.6s ease-in, opacity 0.6s; transform: translateY(60px); opacity: 0; }
+
+/* ───── 1대다수 액션 ───── */
+.act-root { margin: 0 -16px; }
+.act { display: flex; flex-direction: column; height: calc(100dvh - 20px); min-height: 520px; }
+.act-top { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 6px; align-items: center; padding: 6px 10px; background: var(--panel); border-bottom: var(--px) solid var(--line); font-size: 12px; }
+.act-time { color: var(--accent); }
+.act-stage { position: relative; flex: 1; touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+.arena { display: block; width: 100%; height: 100%; }
+.stick { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.06); display: none; pointer-events: none; }
+.stick.on { display: block; }
+.stick i { position: absolute; left: 28px; top: 28px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.5); }
+.act-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); background: var(--panel); border-top: var(--px) solid var(--line); }
+.abtn { position: relative; overflow: hidden; min-height: 58px; font: inherit; color: var(--ink); background: var(--panel-2); border: var(--px) solid var(--line); box-shadow: var(--px) var(--px) 0 var(--line);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; touch-action: none; cursor: pointer; }
+.abtn span { font-size: 22px; line-height: 1; }
+.abtn small { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; max-width: 100%; }
+.abtn.a-atk { background: #5a2a2a; }
+.abtn:disabled { opacity: 0.4; }
+.abtn:active { transform: translate(var(--px), var(--px)); box-shadow: none; }
+.abtn .cdv { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0, 0, 0, 0.55); pointer-events: none; }
+.act-intro { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; padding: 24px; text-align: center; background: rgba(10, 9, 18, 0.72); }
+.act-intro .btn { max-width: 220px; }
+.act-banner { position: absolute; top: 38%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; color: var(--accent); text-shadow: 3px 3px 0 #000; pointer-events: none; }
+.act-banner.lose { color: var(--bad); }
+.skrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.btn.mini.on { background: var(--accent); color: var(--accent-ink); }
+.pk-box .bar { flex: 1 1 auto; width: 100%; min-width: 60px; }

@@ -46,6 +46,11 @@ export function learnSkill(s, id, notes) {
   const lv = s.skills[id] ?? 0
   if (lv >= 3) return
   s.skills[id] = lv + 1
+  if (!lv && !sk.basic) {
+    s.moves ??= []
+    if (s.moves.length < 3) s.moves.push(id)
+    else notes?.push({ text: '📒에서 전투 기술을 바꿀 수 있다', tone: '' })
+  }
   s.routes[sk.route] = (s.routes[sk.route] ?? 0) + 2
   notes?.push({ text: `✨ ${sk.name}${lv ? ` Lv${lv + 1}` : ' 습득'}`, tone: 'key' })
 }

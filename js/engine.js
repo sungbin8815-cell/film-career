@@ -4,7 +4,8 @@ import D from '../data/index.js'
 import * as St from './state.js'
 import { test } from './conditions.js'
 import { applyEffects, gainExp, giveItem, learnSkill, rollItem } from './effects.js'
-import { startCombat, useSkill as combatUse } from './combat.js'
+import { startCombat, useSkill as combatUse, useBag as combatBag, flee as combatFlee } from './combat.js'
+import { buildAction } from './action-core.js'
 import * as Save from './save.js'
 import { pickOne, weightedPick, randInt, asList } from './util.js'
 
@@ -92,10 +93,8 @@ export function chooseOffer(i) {
 }
 
 function makeNodeChoices(k) {
-  const kinds = [
-    { id: 'fight', weight: 38 }, { id: 'event', weight: 34 }, { id: 'rest', weight: 12 },
-    { id: 'shop', weight: 9 }, { id: 'elite', weight: S.projectNo >= 1 ? 9 : 0 },
-  ]
+  const W = C.nodeWeights
+  const kinds = Object.entries(W).map(([id, w]) => ({ id, weight: id === 'elite' && S.projectNo < 1 ? 0 : w }))
   const out = []
   let guard = 0
   while (out.length < C.nodeChoices && guard++ < 30) {
@@ -124,24 +123,41 @@ function pickEnemy(kind) {
 export function chooseNode(i) {
   const p = S.project
   if (S.step.type !== 'map' || !p) return
-  if (p.step >= C.nodesPerProject) {
-    startCombat(S, p.boss, { source: 'boss' })
-    return go({ type: 'combat' })
-  }
+  if (p.step >= C.nodesPerProject) return startFight(p.boss, 'boss')
   const kind = p.nodes[p.step][i]
   if (!kind) return
-  if (kind === 'fight' || kind === 'elite') {
-    startCombat(S, pickEnemy(kind === 'elite' ? 'elite' : 'normal'), { source: kind })
-    return go({ type: 'combat' })
-  }
+  if (kind === 'fight') return startFight(pickEnemy('normal'), 'fight')
+  if (kind === 'elite') return startFight(pickEnemy('elite'), 'elite')
   if (kind === 'event') {
     const ev = pickEvent()
     if (ev) { S.seen[ev.id] = S.projectNo; return go({ type: 'event', id: ev.id }) }
-    startCombat(S, pickEnemy('normal'), { source: 'fight' })
-    return go({ type: 'combat' })
+    return startFight(pickEnemy('normal'), 'fight')
   }
   if (kind === 'shop') return go({ type: 'shop', stock: makeStock() })
   if (kind === 'rest') return go({ type: 'rest', options: makeRest() })
+}
+
+// 일반 적 = 1대다수 액션, 강적·보스 = 1대1 턴제
+function startFight(enemyId, source) {
+  const e = St.getEnemy(enemyId)
+  if (e.kind === 'normal') {
+    S.actionSetup = buildAction(S, enemyId)
+    return go({ type: 'action', enemyId, source })
+  }
+  startCombat(S, enemyId, { source })
+  go({ type: 'combat' })
+}
+
+export function actionDone(res) {
+  if (S.step.type !== 'action') return
+  const setup = S.actionSetup
+  S.hp = res.hp; S.mp = res.mp
+  S.bag.bacchus = res.bag
+  S.money += res.money ?? 0
+  St.clampVitals(S)
+  S.combat = { enemy: { id: setup.enemyId, name: `${setup.name} 무리`, emoji: setup.emoji, kind: 'normal' }, result: res.result, source: S.step.source, kills: res.kills, mode: 'action', total: setup.mobs.length }
+  S.actionSetup = null
+  finishCombat()
 }
 
 function nodeDone() {
@@ -201,8 +217,17 @@ export function buyItem(id) {
 export function buyPotion() {
   if (S.step.type !== 'shop' || S.money < C.shop.potion.price) return
   S.money -= C.shop.potion.price
-  S.hp = St.maxHp(S); S.mp = St.maxMp(S)
-  go({ ...S.step, potionBought: true, notes: [{ text: '❤️🧠 전부 회복', tone: 'good' }] })
+  S.bag.bacchus += 1
+  go({ ...S.step, notes: [{ text: `🧃 ${C.shop.potion.name} +1 (가방 ${S.bag.bacchus})`, tone: 'good' }] })
+}
+
+// 전투 기술 편성 (기본기 외 최대 3개)
+export function toggleMove(id) {
+  if (!S.skills[id] || St.getSkill(id)?.basic) return
+  S.moves ??= []
+  if (S.moves.includes(id)) S.moves = S.moves.filter((x) => x !== id)
+  else if (S.moves.length < 3) S.moves.push(id)
+  Save.saveRun(S)
 }
 
 const REST_OPTIONS = [
@@ -232,12 +257,24 @@ export function chooseRest(id) {
 }
 
 // ───────── 전투 ─────────
+function afterTurn() {
+  go({ type: 'combat', ended: !!S.combat.result })
+}
 export function useSkill(id) {
-  if (S.step.type !== 'combat') return
-  combatUse(S, id)
-  const cb = S.combat
-  if (!cb.result) return go({ type: 'combat' })
-  finishCombat()
+  if (S.step.type !== 'combat' || S.combat.result) return
+  combatUse(S, id); afterTurn()
+}
+export function useBag() {
+  if (S.step.type !== 'combat' || S.combat.result) return
+  combatBag(S); afterTurn()
+}
+export function flee() {
+  if (S.step.type !== 'combat' || S.combat.result) return
+  combatFlee(S); afterTurn()
+}
+// 화면이 마지막 메시지까지 보여준 뒤 호출
+export function combatFinish() {
+  if (S.step.type === 'combat' && S.combat?.result) finishCombat()
 }
 
 function finishCombat() {
@@ -247,9 +284,12 @@ function finishCombat() {
   const af = St.getAffix(p?.affix)
   const notes = []
   const scale = 1 + 0.25 * S.projectNo
-  if (cb.result === 'win') {
-    const exp = gainExp(S, e.exp * scale * (af?.exp ?? 1))
-    const gold = Math.round(e.gold * (1 + 0.15 * S.projectNo))
+  const groupMul = cb.mode === 'action' ? 0.3 * (cb.kills ?? 1) + 0.3 : 1
+  if (cb.result === 'flee') {
+    notes.push({ text: '🏃 무사히 빠져나왔다', tone: '' })
+  } else if (cb.result === 'win') {
+    const exp = gainExp(S, e.exp * scale * groupMul * (af?.exp ?? 1))
+    const gold = Math.round(e.gold * groupMul * (1 + 0.15 * S.projectNo))
     S.money += gold
     notes.push({ text: `📈 경험치 +${exp}`, tone: 'good' }, { text: `💰 +${gold}만`, tone: 'good' })
     if (p) { p.score += e.kind === 'boss' ? 3 : e.kind === 'elite' ? 2 : 1; p.wins += 1 }
@@ -270,10 +310,7 @@ function finishCombat() {
 // ───────── 진행 이어가기 (레벨업 → 전직 → 다음) ─────────
 export function proceed() {
   const t = S.step.type
-  if (t === 'event_result' && S.step.fight) {
-    startCombat(S, S.step.fight, { source: 'event' })
-    return go({ type: 'combat' })
-  }
+  if (t === 'event_result' && S.step.fight) return startFight(S.step.fight, 'event')
   if (t === 'combat_end' && S.step.source === 'boss') return finishProject()
   if (t === 'result') return flush('offers')
   if (['event_result', 'combat_end', 'rest_done', 'shop'].includes(t)) return flush('node')
@@ -408,3 +445,4 @@ function endRun() {
 
 // 디버그·시뮬레이터용
 export const _internal = { jobScore }
+export const debugFight = (enemyId) => startFight(enemyId, 'fight')

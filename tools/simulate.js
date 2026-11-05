@@ -3,7 +3,8 @@
 //   - N판 자동 플레이: 레벨 진행, 최종 직업 분포, 전투 승률·턴 수, 판당 터치 수, 판끼리 루트 차이
 import * as E from '../js/engine.js'
 import * as St from '../js/state.js'
-import { skillList } from '../js/combat.js'
+import { moveList } from '../js/combat.js'
+import { autoResolve } from '../js/action-core.js'
 import D from '../data/index.js'
 
 const N = Number(process.argv[2] ?? 300)
@@ -29,6 +30,7 @@ let step
 E.setListener((s) => { step = s })
 const endCount = {}
 const paths = new Set()
+let actionFights = 0, actionLoss = 0, turnFights = 0
 let taps = 0, fights = 0, losses = 0, turns = 0, levelSum = 0, finalSum = 0, bossLoss = 0, bosses = 0
 const jobAtProject = {}
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
@@ -50,10 +52,18 @@ for (let n = 0; n < N; n++) {
         if (POLICY === 'smart' && s.hp < St.maxHp(s) * 0.4 && opts.includes('rest')) i = opts.indexOf('rest')
         E.chooseNode(i); break
       }
+      case 'action': {
+        fights++; actionFights++
+        const r = autoResolve(s.actionSetup)
+        if (r.result === 'lose') actionLoss++
+        E.actionDone(r); break
+      }
       case 'combat': {
-        if (s.combat.turn === 1) fights++
+        if (step.ended) { E.combatFinish(); break }
+        if (s.combat.turn === 1) { fights++; turnFights++ }
         turns++
-        const list = skillList(s).filter((k) => s.mp >= (k.mp ?? 0))
+        if (POLICY === 'smart' && s.hp < St.maxHp(s) * 0.25 && s.bag.bacchus > 0) { E.useBag(); break }
+        const list = moveList(s).filter((k) => s.mp >= (k.mp ?? 0))
         let k
         if (POLICY === 'smart') {
           const hpLow = s.hp < St.maxHp(s) * 0.35
@@ -99,6 +109,7 @@ for (let n = 0; n < N; n++) {
 console.log(`\n=== ${N}판 (${POLICY}) ===`)
 console.log(`판당 터치 ${(taps / N).toFixed(0)}회 · 평균 최종 레벨 ${(levelSum / N).toFixed(1)} · 최종 전직 도달 ${(100 * finalSum / N).toFixed(0)}%`)
 console.log(`전투 ${(fights / N).toFixed(1)}회/판 · 패배율 ${(100 * losses / fights).toFixed(1)}% · 보스 패배율 ${(100 * bossLoss / bosses).toFixed(1)}% · 전투당 ${(turns / fights).toFixed(1)}턴`)
+console.log(`  액션(1대다수) ${(actionFights / N).toFixed(1)}회/판 · 패배율 ${(100 * actionLoss / Math.max(1, actionFights)).toFixed(1)}% · 턴제(1대1) ${(turnFights / N).toFixed(1)}회/판 · 턴제 전투당 ${(turns / Math.max(1, turnFights)).toFixed(1)}턴`)
 console.log('작품 n개 후 평균 직업 단계:', Object.entries(jobAtProject).map(([k, v]) => `${k}:${(v / N).toFixed(1)}`).join(' '))
 console.log(`서로 다른 전직 경로: ${paths.size}가지`)
 console.log('\n최종 직업 분포:')
