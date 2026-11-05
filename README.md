@@ -2,7 +2,8 @@
 
 촬영장 직업인들이 구도·녹음 문제로 다투다가 장비를 무기로 한판 붙는 2D 대전 격투게임입니다.
 
-- **바로 플레이**: https://sungbin8815-cell.github.io/film-career/play/ (휴대폰 세로·가로 모두)
+- **바로 플레이**: https://sungbin8815-cell.github.io/film-career/play/
+- **가로 화면 전용**: 세로로 들면 "가로로 돌려주세요" 안내가 뜹니다. 안드로이드 크롬은 첫 터치 때 전체화면 + 가로 고정, 아이폰은 화면 회전 잠금을 풀고 가로로 돌려주세요. 홈 화면에 추가하면 가로 전체화면 앱처럼 열립니다.
 - 기술: TypeScript · Phaser 3 · Vite (온라인 대전용 Node.js + Socket.IO 서버는 PHASE 4)
 
 ## 현재 진행 상황

@@ -1,0 +1,11 @@
+{
+  "name": "ROLLING! — 촬영장 격투게임",
+  "short_name": "ROLLING!",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0d0b17",
+  "theme_color": "#0d0b17",
+  "lang": "ko"
+}

@@ -102,10 +102,11 @@ export class FightScene extends Phaser.Scene {
       // 라운드 승리 표시
       pips[i] = [0, 1].map((k) => this.add.rectangle(left ? x0 + bw - 6 - k * 10 : x0 + 6 + k * 10, 34, 7, 4, 0x0a0812).setStrokeStyle(1, 0xffd23f).setDepth(20))
       // 하단 필살 게이지
-      const mx = left ? 10 : W - 10 - 120
-      this.add.rectangle(mx - 2, 254, 124, 9, COLOR.line).setOrigin(0).setDepth(20)
-      meter[i] = this.add.rectangle(mx, 256, 0, 5, 0x5ec8ff).setOrigin(0).setDepth(21)
-      meterTxt[i] = text(this, left ? mx + 124 + 4 : mx - 6, 258, 'SP', 11, COLOR.blue, left ? 0 : 1).setDepth(21)
+      // 하단 필살 게이지: 양쪽 터치 버튼 사이(화면 가운데)에 둬서 가리지 않게
+      const mx = left ? W / 2 - 8 - 100 : W / 2 + 8
+      this.add.rectangle(mx - 2, 250, 104, 9, COLOR.line).setOrigin(0).setDepth(20)
+      meter[i] = this.add.rectangle(left ? mx + 100 : mx, 252, 0, 5, 0x5ec8ff).setOrigin(left ? 1 : 0, 0).setDepth(21)
+      meterTxt[i] = text(this, left ? mx - 6 : mx + 106, 254, 'SP', 11, COLOR.blue, left ? 1 : 0).setDepth(21)
       combo[i] = this.add.text(left ? 14 : W - 14, 96, '', { fontFamily: FONT, fontSize: '16px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 3, fontStyle: 'bold', resolution: 1 }).setOrigin(left ? 0 : 1, 0.5).setDepth(25)
     })
     this.add.rectangle(W / 2, 22, 30, 22, COLOR.line).setDepth(20)
@@ -120,7 +121,7 @@ export class FightScene extends Phaser.Scene {
       this.hud.hp[i].width = 190 * frac
       this.lagHp[i] = Math.max(frac, this.lagHp[i] - 0.006)
       this.hud.hpLag[i].width = 190 * this.lagHp[i]
-      this.hud.meter[i].width = 120 * (f.meter / METER_MAX)
+      this.hud.meter[i].width = 100 * (f.meter / METER_MAX)
       this.hud.meter[i].fillColor = f.meter >= 100 ? 0xffd23f : 0x5ec8ff
       this.hud.meterTxt[i].setText(f.meter >= 100 ? '필살 OK!' : `SP ${Math.floor(f.meter)}`)
       this.hud.pips[i].forEach((p, k) => p.setFillStyle(k < m.wins[i] ? 0xffd23f : 0x0a0812))
@@ -255,9 +256,8 @@ export class FightScene extends Phaser.Scene {
     const cam = this.cameras.main
     cam.setZoom(this.zoom)
     const viewH = 270 / this.zoom
-    // 세로 화면: 지면을 화면 80% 지점 / 가로 화면: 버튼에 가리지 않게 62% 지점
-    const landscape = window.innerWidth > window.innerHeight
-    cam.centerOn((a.x + b.x) / 2, GROUND - viewH * (landscape ? 0.12 : 0.3))
+    // 지면이 화면 62% 지점 → 캐릭터 발이 아래쪽 버튼에 가리지 않음
+    cam.centerOn((a.x + b.x) / 2, GROUND - viewH * 0.12)
   }
 
   private togglePause() {

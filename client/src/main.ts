@@ -26,7 +26,16 @@ const game = new Phaser.Game({
 })
 game.registry.set('controls', controls)
 
-// 첫 터치에 오디오 깨우기 (브라우저 정책)
-window.addEventListener('pointerdown', unlockAudio, { once: true })
+// 첫 터치: 오디오 깨우기 + (지원하는 폰에서) 전체화면·가로 고정
+window.addEventListener('pointerdown', () => {
+  unlockAudio()
+  const touchDevice = matchMedia('(pointer: coarse)').matches
+  if (!touchDevice || document.fullscreenElement) return
+  const el = document.documentElement
+  if (typeof el.requestFullscreen !== 'function') return  // iOS Safari 등: 지원 안 함 → 세로면 안내 화면
+  el.requestFullscreen({ navigationUI: 'hide' })
+    .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+    .catch(() => { /* 거부되거나 지원 안 함: 그대로 진행 */ })
+}, { once: true })
 // 화면 회전·크기 변경 대응
 window.addEventListener('resize', () => game.scale.refresh())
