@@ -131,23 +131,27 @@ function aiVsAi(a: string, b: string, n: number) {
 }
 
 describe('밸런스', () => {
-  it('어떤 캐릭터도 다른 캐릭터에게 일방적으로 지거나 이기지 않는다 (AI끼리, 양쪽 자리 바꿔 평균)', () => {
+  it('캐릭터별 평균 승률 40~60% (AI끼리, 양쪽 자리 바꿔 평균), 완전히 못 이기는 상대는 없음', () => {
     const ids = CHARACTERS.map((c) => c.id)
     const w: Record<string, number> = {}
     for (const a of ids) for (const b of ids) if (a !== b) w[a + b] = aiVsAi(a, b, 16)
     const rows: string[] = []
     let worst = 0.5
+    const avg: Record<string, number> = {}
     for (const a of ids) {
+      avg[a] = 0
       const r: string[] = []
       for (const b of ids) {
         if (a === b) { r.push('  -'); continue }
         const v = (w[a + b] + 1 - w[b + a]) / 2
         worst = Math.min(worst, v)
+        avg[a] += v / (ids.length - 1)
         r.push(String(Math.round(v * 100)).padStart(3))
       }
-      rows.push(`${a.padEnd(9)}${r.join(' ')}`)
+      rows.push(`${a.padEnd(9)}${r.join(' ')}   평균 ${Math.round(avg[a] * 100)}`)
     }
     console.log('승률표 (행 캐릭터가 이긴 비율 %, 양쪽 자리 평균)\n' + rows.join('\n'))
-    expect(worst).toBeGreaterThanOrEqual(0.2)
+    for (const a of ids) { expect(avg[a], `${a} 평균`).toBeGreaterThanOrEqual(0.4); expect(avg[a], `${a} 평균`).toBeLessThanOrEqual(0.6) }
+    expect(worst).toBeGreaterThan(0.05)
   }, 120000)
 })

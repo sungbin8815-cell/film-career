@@ -44,6 +44,10 @@ export class Fighter {
   armorLeft = 0
   wallBounced = false
   groundBounced = false
+  /** 맞은 기술의 튕김 속성 (벽·바닥) */
+  wallArm = false
+  groundArm = false
+  pendingBounce: 'wall' | 'ground' | null = null
   hitWallThisMove = false
   pendingEffect: { effect: string; move: MoveData } | null = null
   pendingShot: MoveData | null = null
@@ -349,6 +353,14 @@ export class Fighter {
         if (--this.stun <= 0) this.setState(this.grounded ? 'idle' : 'fall')
         break
       case 'knockback':
+        // 바닥 튕김: 다시 떠올라 추가타 기회
+        if (this.grounded && this.stateFrame > 3 && this.groundArm && !this.groundBounced) {
+          this.groundBounced = true; this.groundArm = false
+          this.vy = 5.2; this.y = this.floorY + 0.01; this.vx *= 0.6
+          this.juggles = Math.max(0, this.juggles - 1)
+          this.pendingBounce = 'ground'
+          break
+        }
         if (this.grounded && this.stateFrame > 3) { this.setState('knockdown'); this.stun = 30; this.vx = 0; this.invuln = 38; this.juggles = 0; this.pendingKnockdown = true }
         break
       case 'knockdown':
@@ -457,10 +469,23 @@ export class Fighter {
         if (wasAir) { this.pendingLand = true; this.dropFrom = -1 }
         if (this.state === 'jump' || this.state === 'fall') { this.setState('idle'); this.vx = 0 }
         // 공중 기술 중 착지 → 끝
-        if (this.state === 'attack' && this.move?.air) { this.move = null; this.setState('idle'); this.vx = 0 }
+        // 단, 내려꽂는 기술(급강하·바닥 튕김)은 착지해서 판정까지 마저 냄
+        const m = this.move
+        const dive = !!m && ((m.lift ?? 0) < 0 || !!m.groundBounce) && this.moveFrame < m.startup + m.active
+        if (this.state === 'attack' && m?.air && !dive) { this.move = null; this.setState('idle'); this.vx = 0 }
+        else if (dive) this.vx *= 0.3
       }
     } else if (this.state === 'airdash') this.y = Math.max(this.y, floor)
-    this.x = Math.max(WALL, Math.min(STAGE_W - WALL, this.x))
+    const cx = Math.max(WALL, Math.min(STAGE_W - WALL, this.x))
+    // 스테이지 끝 벽 튕김: 벽 튕김 기술이거나 아주 세게 날아오면 튕겨 나옴
+    if (cx !== this.x && this.state === 'knockback' && !this.wallBounced && (this.wallArm || Math.abs(this.vx) > 5)) {
+      this.wallBounced = true; this.wallArm = false
+      this.vx = -this.vx * 0.55
+      this.vy = Math.max(this.vy, 4.5); this.y = Math.max(this.y, this.floorY + 0.01)
+      this.juggles = Math.max(0, this.juggles - 1)
+      this.pendingBounce = 'wall'
+    }
+    this.x = cx
   }
 }
 

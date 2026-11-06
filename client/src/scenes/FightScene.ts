@@ -7,6 +7,7 @@ import { SimpleAI } from '../core/AI'
 import { emptyInput, FPS, STAGE_W, type MatchEvent } from '../core/types'
 import { getCharacter, atRank, RANK_MUL, howTo, moveList } from '../config/characters'
 import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
+import { arenaFor } from '../config/arenas'
 import { TRAIT_INFO, LENSES, cdKey } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
@@ -18,6 +19,8 @@ import { settings } from '../ui/Settings'
 import { sfx } from '../audio/Sfx'
 
 const GROUND = 230
+/** 스테이지 바깥 여백 (세트 벽) */
+const EDGE = 140
 const STEP_MS = 1000 / FPS
 
 /** 전투 설정. VS 모드는 p1·p2만, 스테이지 모드는 stage(0~4)까지 */
@@ -45,6 +48,7 @@ export class FightScene extends Phaser.Scene {
   private bg = 'stage_chroma'
   private camKick = { x: 0, y: 0 }
   private worldG!: Phaser.GameObjects.Graphics
+  private vfxG!: Phaser.GameObjects.Graphics
   private tags: Phaser.GameObjects.Text[] = []
   private koSpin = [false, false]
   private assistSprites: Phaser.GameObjects.Sprite[] = []
@@ -102,10 +106,32 @@ export class FightScene extends Phaser.Scene {
     const before = new Set(this.children.list)
     // 넓은 스테이지: 배경 판을 이어 붙임 (가운데는 좌우 반전), 위쪽은 스튜디오 천장
     const ceil = this.add.graphics()
-    ceil.fillStyle(0x0d0b17, 1).fillRect(-40, -320, STAGE_W + 80, 322)
+    // 배경 맨 윗줄 색을 위로 이어서 줌아웃해도 하늘·벽이 끊기지 않게
+    const top = this.textures.getPixel(2, 1, this.bg)
+    const topCol = top ? Phaser.Display.Color.GetColor(top.red, top.green, top.blue) : 0x0d0b17
+    ceil.fillStyle(topCol, 1).fillRect(-40, -440, STAGE_W + 80, 442)
+    ceil.fillStyle(0x000000, 0.25).fillRect(-40, -440, STAGE_W + 80, 260)
+    // 바닥 아래도 이어서 (줌아웃 때 발밑이 비지 않게)
+    const bot = this.textures.getPixel(2, 268, this.bg)
+    ceil.fillStyle(bot ? Phaser.Display.Color.GetColor(bot.red, bot.green, bot.blue) : 0x1a1626, 1).fillRect(-40, 268, STAGE_W + 80, 90)
     ceil.lineStyle(2, 0x2f2a4d, 1)
     for (const yy of [-250, -150, -50]) { ceil.lineBetween(-40, yy, STAGE_W + 40, yy); ceil.lineBetween(-40, yy + 12, STAGE_W + 40, yy + 12); for (let x = 0; x < STAGE_W; x += 24) ceil.lineBetween(x, yy, x + 12, yy + 12) }
     for (let x = 0, k = 0; x < STAGE_W; x += 480, k++) this.add.image(x, 0, this.bg).setOrigin(0).setFlipX(k % 2 === 1)
+    // 스테이지 양 끝: 세트 벽(여기에 부딪히면 튕김). 카메라가 벽 너머까지 보여서 끝에 있는 캐릭터가 터치 버튼에 가리지 않음
+    const edge = this.add.graphics()
+    for (const [x0, w] of [[-EDGE, EDGE], [STAGE_W, EDGE]] as const) {
+      edge.fillStyle(0x2a2338, 1).fillRect(x0, -440, w, 800)
+      edge.fillStyle(0x3b3355, 1)
+      for (let y = -440; y < 280; y += 40) edge.fillRect(x0, y, w, 2)
+      edge.fillStyle(0x0a0812, 1).fillRect(x0 === -EDGE ? -6 : STAGE_W, -320, 6, 600)
+      edge.fillStyle(0xfacc15, 1)
+      for (let y = 0; y < GROUND; y += 24) edge.fillRect(x0 === -EDGE ? -6 : STAGE_W, y, 6, 10)
+      edge.fillStyle(0x1a1626, 1).fillRect(x0, GROUND, w, 130)
+    }
+    // 떠 있는 발판 (스테이지마다 모양이 다름)
+    const arena = arenaFor(this.bg)
+    this.match.platforms = arena.platforms
+    this.drawPlatforms(this.add.graphics().setDepth(2), arena.look)
     for (const t of this.match.teams) for (const f of t.members) ensureFighterTexture(this, this.keyOf(f))
     this.controls = this.registry.get('controls') as Controls
     this.controls.show(true)
@@ -113,6 +139,7 @@ export class FightScene extends Phaser.Scene {
 
     // 특성 오브젝트(마크·조명·세트벽)와 머리 위 표시
     this.worldG = this.add.graphics().setDepth(3)
+    this.vfxG = this.add.graphics().setDepth(28)
     this.tags = [0, 1].map(() => this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '11px', color: '#ffffff', stroke: '#0a0812', strokeThickness: 3, resolution: 6 }).setOrigin(0.5).setScale(0.6).setDepth(33))
     this.match.fighters.forEach((f, i) => {
       this.shadows[i] = this.add.image(f.x, GROUND + 1, 'shadow').setDepth(1)
@@ -124,7 +151,7 @@ export class FightScene extends Phaser.Scene {
     const hudObjs = this.children.list.filter((o) => !before.has(o) && !worldObjs.includes(o))
     // 카메라 두 대: 메인 = 두 캐릭터를 따라가며 확대, UI = HUD 고정
     const main = this.cameras.main
-    main.setBounds(0, -320, STAGE_W, 590).setZoom(this.zoom).centerOn(this.match.fighters[0].x / 2 + this.match.fighters[1].x / 2, GROUND - 52)
+    main.setBounds(-EDGE, -440, STAGE_W + EDGE * 2, 780).setZoom(this.zoom).centerOn(this.match.fighters[0].x / 2 + this.match.fighters[1].x / 2, GROUND - 52)
     main.ignore(hudObjs)
     this.uiCam = this.cameras.add(0, 0, 480, 270)
     this.uiCam.ignore(worldObjs)
@@ -229,6 +256,12 @@ export class FightScene extends Phaser.Scene {
     spr.setPosition(Math.round(f.x) + jitter, Math.round(GROUND - f.y))
     spr.setFlipX(f.facing < 0)
     const sq = this.squash[i]
+    // 과장 동작: 예비 동작에 움츠렸다가, 판정 순간 쭉 늘어남 (무거운 기술일수록 크게)
+    if (f.state === 'attack' && f.move && spr === this.sprites[i]) {
+      const w = Math.min(1, (f.move.damage + (f.move.projectile?.damage ?? 0)) / 90)
+      if (f.moveFrame === 1) this.squash[i] = { x: 1 - 0.1 * w, y: 1 + 0.08 * w }
+      if (f.moveFrame === f.move.startup) this.squash[i] = { x: 1 + 0.22 * w, y: 1 - 0.14 * w }
+    }
     spr.setScale(sq.x, sq.y)
     // KO 회전 / 리테이크 정지(흑백) / 기절 흔들림
     if (this.koSpin[i] && f.state === 'knockback') spr.setAngle(spr.angle + 24 * f.facing * -1)
@@ -487,6 +520,116 @@ export class FightScene extends Phaser.Scene {
     }
   }
 
+  /** 발판 그리기: 조명 트러스 / 비계 / 크레인 / 옥상 / 시상식 단상 */
+  private drawPlatforms(g: Phaser.GameObjects.Graphics, look: string) {
+    for (const p of this.match.platforms) {
+      const x0 = p.x - p.w / 2, top = GROUND - p.y
+      if (look === 'truss' || look === 'stage') {
+        g.fillStyle(0x0a0812, 1).fillRect(x0 - 1, top - 1, p.w + 2, 10)
+        g.fillStyle(0x9ca3af, 1).fillRect(x0, top, p.w, 2).fillRect(x0, top + 6, p.w, 2)
+        g.lineStyle(1, 0x9ca3af, 1)
+        for (let x = x0; x < x0 + p.w - 6; x += 8) g.lineBetween(x, top + 2, x + 8, top + 6)
+        g.lineStyle(1, 0x4b5563, 1).lineBetween(x0 + 10, top + 8, x0 + 10, top - 200).lineBetween(x0 + p.w - 10, top + 8, x0 + p.w - 10, top - 200)
+        for (let x = x0 + 16; x < x0 + p.w - 10; x += 34) { g.fillStyle(0x1f2937, 1).fillRect(x, top + 8, 8, 6); g.fillStyle(0xfef08a, 1).fillRect(x + 2, top + 13, 4, 2) }
+      } else if (look === 'scaffold') {
+        g.fillStyle(0x0a0812, 1).fillRect(x0 - 1, top - 1, p.w + 2, 6)
+        g.fillStyle(0xd6a35c, 1).fillRect(x0, top, p.w, 4)
+        g.lineStyle(2, 0xf59e0b, 1)
+        for (const x of [x0 + 4, x0 + p.w - 4]) g.lineBetween(x, top + 4, x, GROUND)
+        g.lineStyle(1, 0xf59e0b, 0.8).lineBetween(x0 + 4, top + 4, x0 + p.w - 4, GROUND).lineBetween(x0 + p.w - 4, top + 4, x0 + 4, GROUND)
+      } else if (look === 'crane') {
+        g.lineStyle(1, 0x26232e, 1).lineBetween(p.x - 20, top, p.x, top - 300).lineBetween(p.x + 20, top, p.x, top - 300)
+        g.fillStyle(0x0a0812, 1).fillRect(x0 - 1, top - 1, p.w + 2, 8)
+        g.fillStyle(0x8b5a2b, 1).fillRect(x0, top, p.w, 6)
+        g.fillStyle(0x6b4423, 1).fillRect(x0, top + 4, p.w, 2)
+      } else {
+        g.fillStyle(0x0a0812, 1).fillRect(x0 - 1, top - 1, p.w + 2, GROUND - top + 1)
+        g.fillStyle(0x64748b, 1).fillRect(x0, top, p.w, GROUND - top)
+        g.fillStyle(0x94a3b8, 1).fillRect(x0, top, p.w, 3)
+        for (let y = top + 10; y < GROUND; y += 10) g.fillStyle(0x475569, 1).fillRect(x0 + 4, y, p.w - 8, 1)
+      }
+    }
+  }
+
+  /** 긴 사거리 기술 이펙트: 판정 범위를 따라 그림 (붐대·레이저·베기·지진·기둥·부채꼴·채찍·발톱·필름) */
+  private drawMoveFx() {
+    const g = this.vfxG
+    g.clear()
+    for (const f of this.match.fighters) {
+      const m = f.move
+      if (!m || f.state !== 'attack' || !m.vfx) continue
+      const st = m.startup, t = f.moveFrame - st
+      const hb = f.hitbox()
+      // 예비 동작: 모으는 중에는 빛이 모임
+      if (t < 0) {
+        if (f.charge > 0 || t > -4) { const r = 4 + (f.charge > 0 ? Math.min(14, f.charge / 3) : 2); g.fillStyle(0xffffff, 0.35 + 0.3 * Math.sin(this.tick)).fillCircle(f.x + f.facing * 14, GROUND - f.y - 30, r) }
+        continue
+      }
+      if (!hb) continue
+      const y0 = GROUND - hb.y - hb.h, cy = y0 + hb.h / 2
+      const nearX = f.facing > 0 ? hb.x : hb.x + hb.w, farX = f.facing > 0 ? hb.x + hb.w : hb.x
+      const fade = 1 - t / Math.max(1, m.active)
+      switch (m.vfx) {
+        case 'pole': {   // 붐대: 끝에 마이크(털뭉치)
+          g.lineStyle(3, 0x0a0812, 1).lineBetween(nearX, cy, farX, cy)
+          g.lineStyle(2, 0xd1d5db, 1).lineBetween(nearX, cy, farX, cy)
+          g.fillStyle(0x0a0812, 1).fillEllipse(farX, cy, 16, 10)
+          g.fillStyle(0x6b7280, 1).fillEllipse(farX, cy, 13, 8)
+          g.lineStyle(1, 0xffffff, 0.5 * fade).lineBetween(nearX, cy - 4, farX - f.facing * 8, cy - 4)
+          if (hb.h > 60) { g.lineStyle(3, 0xd1d5db, 1).lineBetween(f.x + f.facing * 8, GROUND - f.y - 20, f.x + f.facing * 8, y0); g.fillStyle(0x6b7280, 1).fillEllipse(f.x + f.facing * 8, y0, 10, 14) }
+          break
+        }
+        case 'laser': {  // 빛줄기: 흰 심 + 노란 테두리
+          g.fillStyle(0xfef08a, 0.5 * fade + 0.2).fillRect(hb.x, cy - hb.h / 2 - 3, hb.w, hb.h + 6)
+          g.fillStyle(0xffffff, 0.9).fillRect(hb.x, cy - hb.h / 4, hb.w, Math.max(2, hb.h / 2))
+          g.fillStyle(0xffffff, 0.8).fillCircle(nearX, cy, 6 + (this.tick % 3))
+          for (let k = 0; k < 4; k++) g.fillStyle(0xfef9c3, 0.7).fillRect(hb.x + ((this.tick * 13 + k * 97) % Math.max(1, hb.w)), cy - 1, 6, 2)
+          break
+        }
+        case 'slash': {  // 베기: 반달 궤적
+          g.lineStyle(4, 0xffffff, 0.9 * fade)
+          g.beginPath(); g.arc(f.x, cy, hb.w * 0.7, f.facing > 0 ? -1.2 : Math.PI - 1.2, f.facing > 0 ? 1.2 : Math.PI + 1.2, false); g.strokePath()
+          g.lineStyle(2, 0x93e1ff, 0.7 * fade); g.beginPath(); g.arc(f.x, cy, hb.w * 0.6, f.facing > 0 ? -1 : Math.PI - 1, f.facing > 0 ? 1 : Math.PI + 1, false); g.strokePath()
+          break
+        }
+        case 'quake': {  // 지진: 바닥 균열 + 튀는 흙
+          g.lineStyle(2, 0x0a0812, 1)
+          for (let x = hb.x; x < hb.x + hb.w; x += 14) g.lineBetween(x, GROUND + 1, x + 7, GROUND - 3 - ((x * 7) % 5)).lineBetween(x + 7, GROUND - 3 - ((x * 7) % 5), x + 14, GROUND + 1)
+          for (let k = 0; k < 6; k++) g.fillStyle(0xd6a35c, fade).fillRect(hb.x + ((k * 53 + this.tick * 5) % Math.max(1, hb.w)), GROUND - 4 - ((t * 3 + k * 5) % 18), 3, 3)
+          break
+        }
+        case 'pillar': { // 기둥: 위로 솟는 빛·음파
+          g.fillStyle(0x86efac, 0.35 * fade + 0.15).fillRect(hb.x, y0, hb.w, hb.h)
+          g.fillStyle(0xffffff, 0.6 * fade).fillRect(hb.x + hb.w / 3, y0, hb.w / 3, hb.h)
+          break
+        }
+        case 'cone': {   // 부채꼴: 외침·스프레이
+          g.fillStyle(0xfff8e7, 0.25 * fade + 0.1).fillTriangle(nearX, cy, farX, y0, farX, y0 + hb.h)
+          for (let k = 1; k <= 3; k++) { const xx = nearX + (farX - nearX) * (k / 3) * ((t % 6) / 6 + 0.5) / 1.5; g.lineStyle(2, 0xffffff, 0.5 * fade).lineBetween(xx, cy - hb.h * 0.4 * k / 3, xx, cy + hb.h * 0.4 * k / 3) }
+          break
+        }
+        case 'whip': {   // 채찍·케이블: 물결선
+          g.lineStyle(2, 0x0a0812, 1); g.beginPath(); g.moveTo(nearX, cy)
+          for (let k = 1; k <= 12; k++) g.lineTo(nearX + (farX - nearX) * (k / 12), cy + Math.sin(k * 1.3 + this.tick * 0.8) * 5 * (1 - k / 12))
+          g.strokePath()
+          g.lineStyle(1, 0xf472b6, 1); g.beginPath(); g.moveTo(nearX, cy)
+          for (let k = 1; k <= 12; k++) g.lineTo(nearX + (farX - nearX) * (k / 12), cy + Math.sin(k * 1.3 + this.tick * 0.8) * 5 * (1 - k / 12))
+          g.strokePath()
+          break
+        }
+        case 'claw': {   // 크리처 발톱: 세 줄 긁기
+          for (let k = 0; k < 3; k++) { g.lineStyle(3, 0xff5470, fade); g.lineBetween(nearX, y0 + k * hb.h / 3, farX, y0 + k * hb.h / 3 + hb.h / 3) }
+          break
+        }
+        case 'film': {   // 필름: 구멍 뚫린 필름 띠
+          g.fillStyle(0x0a0812, 0.9).fillRect(hb.x, cy - 8, hb.w, 16)
+          for (let x = hb.x + 2; x < hb.x + hb.w - 4; x += 8) g.fillStyle(0xfef3c7, 1).fillRect(x, cy - 6, 4, 3).fillRect(x, cy + 3, 4, 3)
+          break
+        }
+      }
+    }
+  }
+
   private drawDebug() {
     const g = this.dbg!
     g.clear()
@@ -564,6 +707,27 @@ export class FightScene extends Phaser.Scene {
             this.tweens.add({ targets: c, scale: 1 + Math.min(0.4, e.combo * 0.04), duration: 140, ease: 'Back.out' })
             this.tweens.add({ targets: c, alpha: 0, delay: 1000, duration: 300 })
           }
+          break
+        }
+        case 'bounce': {
+          const f = this.match.fighters[e.fighter]
+          const wall = e.kind === 'wall'
+          const x = wall ? (f.x < STAGE_W / 2 ? 6 : STAGE_W - 6) : f.x
+          this.impact(x, wall ? f.y + 30 : 2, 3, 0xffd23f, undefined, f.x < STAGE_W / 2 ? 1 : -1)
+          this.onomato(x + (wall ? (f.x < STAGE_W / 2 ? 16 : -16) : 0), wall ? f.y + 52 : 34, wall ? '벽쿵!!' : '바운드!', '#ffd23f', true)
+          this.cameras.main.shake(wall ? 220 : 160, wall ? 0.014 : 0.01)
+          this.zoomKick = Math.max(this.zoomKick, 0.12)
+          for (let k = 0; k < 6; k++) { const du = this.w(this.add.image(x, GROUND - (wall ? f.y + 10 + k * 8 : 0), 'dust').setDepth(4).setScale(1.3)); this.tweens.add({ targets: du, alpha: 0, x: du.x + (wall ? (f.x < STAGE_W / 2 ? 1 : -1) * (8 + k * 3) : (k - 2.5) * 10), y: du.y - 6, duration: 360, onComplete: () => du.destroy() }) }
+          sfx('hitHeavy')
+          break
+        }
+        case 'dash': {
+          const f = this.match.fighters[e.fighter]
+          const back = e.kind === 'backstep' ? -1 : 1
+          const du = this.w(this.add.image(f.x - f.facing * back * 10, GROUND - f.y, 'dust').setDepth(4).setScale(1.2))
+          this.tweens.add({ targets: du, alpha: 0, x: du.x - f.facing * back * 14, duration: 260, onComplete: () => du.destroy() })
+          this.ghost(this.sprites[e.fighter], e.fighter)
+          sfx('dash')
           break
         }
         case 'block':
@@ -679,7 +843,8 @@ export class FightScene extends Phaser.Scene {
   private followCamera() {
     const [a, b] = this.match.fighters
     const dist = Math.abs(a.x - b.x)
-    const target = Phaser.Math.Clamp(480 / (dist + 170), 0.5, 1.8)
+    const dy = Math.abs(a.y - b.y)
+    const target = Phaser.Math.Clamp(Math.min(480 / (dist + 280), 270 / (dy + 150)), 0.42, 1.8)
     this.zoom += (target - this.zoom) * 0.08
     this.zoomKick *= 0.88
     this.camKick.x *= 0.78; this.camKick.y *= 0.78
@@ -687,7 +852,8 @@ export class FightScene extends Phaser.Scene {
     cam.setZoom(this.zoom + this.zoomKick)
     const viewH = 270 / (this.zoom + this.zoomKick)
     // 지면이 화면 62% 지점 → 캐릭터 발이 아래쪽 버튼에 가리지 않음
-    cam.centerOn((a.x + b.x) / 2 + this.camKick.x, GROUND - viewH * 0.12 + this.camKick.y)
+    const midY = (a.y + b.y) / 2
+    cam.centerOn((a.x + b.x) / 2 + this.camKick.x, GROUND - midY * 0.8 - viewH * 0.12 + this.camKick.y)
   }
 
   private togglePause() {
@@ -769,6 +935,7 @@ export class FightScene extends Phaser.Scene {
     this.followCamera()
     this.drawProjectiles()
     this.drawTraits()
+    this.drawMoveFx()
     this.updateHud()
     if (this.dbg) this.drawDebug()
     if (this.match.phase === 'matchOver' && !this.resultShown && this.match.phaseFrame > 60) this.showResult()

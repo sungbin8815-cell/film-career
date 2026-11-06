@@ -192,6 +192,8 @@ export class Match {
       if (f.pendingJump) { this.events.push({ type: 'jump', fighter: f.idx }); f.pendingJump = false }
       if (f.pendingLand) { this.events.push({ type: 'land', fighter: f.idx }); f.pendingLand = false }
       if (f.pendingKnockdown) { this.events.push({ type: 'knockdown', fighter: f.idx }); f.pendingKnockdown = false }
+      if (f.pendingBounce) { this.events.push({ type: 'bounce', fighter: f.idx, kind: f.pendingBounce, x: f.x, y: f.y }); f.pendingBounce = null; this.hitstop = Math.max(this.hitstop, 6) }
+      if (f.pendingDash) { this.events.push({ type: 'dash', fighter: f.idx, kind: f.pendingDash }); f.pendingDash = null }
     }
     this.pushApart(a, b)
     this.stepAssists()
@@ -276,7 +278,7 @@ export class Match {
     this.resolve(att, def, { chip: 0, blockstun: 0, meterGain: 8, ...d, id: 'trait' }, opts.fromX ?? att.x, opts.unblockable)
   }
 
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx'>> & { id?: string; blind?: number }, fromX: number, unblockable = false) {
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce'>> & { id?: string; blind?: number }, fromX: number, unblockable = false) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
@@ -320,11 +322,15 @@ export class Match {
     def.move = null
     const lastOfMulti = !!d.multiHit && att.hitsThisMove >= d.multiHit.max
     const kbY = d.kbY ?? (lastOfMulti ? d.lastHitKbY : undefined)
-    const launch = !!kbY || !def.grounded || def.hp <= 0
+    // 바닥 튕김 기술(내려찍기)은 서 있는 상대도 바닥에 꽂아 튀어 오르게 함
+    const spike = !!d.groundBounce && def.grounded
+    const launch = !!kbY || !def.grounded || def.hp <= 0 || spike
     if (!def.grounded) def.juggles++
+    def.wallArm = !!d.wallBounce
+    def.groundArm = !!d.groundBounce
     if (launch) {
       def.setState('knockback')
-      def.vy = kbY ?? 3
+      def.vy = spike && !kbY ? 1.5 : kbY ?? 3
       def.y = Math.max(def.y, def.floorY + 0.01)
       def.vx = dir * Math.max(1.5, d.kbX)
     } else {
@@ -335,7 +341,8 @@ export class Match {
     }
     const heavy = d.damage >= 80 || !!kbY
     const finisher = !!d.finisher && (!d.multiHit || lastOfMulti)
-    this.hitstop = (finisher ? 15 : heavy ? 10 : 6) + (counter ? 5 : 0) + (d.crit ? 8 : 0)
+    // 히트스톱은 기술 무게(피해)에 비례
+    this.hitstop = Math.round(Math.min(16, 4 + d.damage / 11)) + (finisher ? 4 : 0) + (counter ? 5 : 0) + (d.crit ? 8 : 0)
     this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: heavy || !!d.crit, finisher: finisher || !!d.crit, launch, counter, crit: !!d.crit, moveName: d.name, sfx: d.sfx })
     if (def.hp <= 0) this.ko(att.idx)
   }
@@ -369,6 +376,11 @@ export class Match {
       const att = this.fighters[p.owner]
       if (def.invuln > 0 || def.hp <= 0) continue
       const box = { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }
+      // 상쇄: 상대의 근접 공격 판정에 닿으면 사라짐 (관통 투사체 제외)
+      const hb = def.hitbox()
+      if (hb && !p.pierce && overlap(box, hb)) { p.dead = true; this.events.push({ type: 'block', x: p.x, y: p.y, attacker: def.idx }); continue }
+      // 대시 시작 순간은 투사체를 뚫고 지나감 (원거리 캐릭터에게 다가가는 수단)
+      if ((def.state === 'dash' && def.stateFrame < 10) || def.state === 'airdash') continue
       if (p.hitCd > 0) p.hitCd--
       if (p.y > 0 && p.hitCd <= 0 && this.canJuggle(def, false) && overlap(box, def.hurtbox())) {
         p.hits++

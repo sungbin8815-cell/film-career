@@ -252,3 +252,46 @@ describe('커맨드 콤보', () => {
     expect(m.fighters[0].invuln).toBeGreaterThan(0)
   })
 })
+
+describe('넓은 맵·발판·튕김', () => {
+  it('벽 튕김 기술로 스테이지 끝에 날리면 튕겨 나온다', () => {
+    const m = new Match(DP, DP); toFight(m)
+    const [a, b] = m.fighters
+    b.x = 1170; a.x = b.x - 40
+    const ev: string[] = []
+    for (let i = 0; i < 60; i++) for (const e of m.step([i === 0 ? press('heavy') : idle(), idle()])) if (e.type === 'bounce') ev.push(e.kind)
+    expect(ev).toContain('wall')
+  })
+  it('바닥 튕김 기술(공중 ↓B)을 맞으면 바닥에서 튀어 오른다', () => {
+    const m = new Match(DP, DP); toFight(m)
+    const [a, b] = m.fighters
+    a.x = b.x - 20
+    m.step([press('up'), idle()])
+    const ev: string[] = []
+    for (let i = 0; i < 70; i++) for (const e of m.step([i === 8 ? press('heavy', { down: true }) : idle(), idle()])) if (e.type === 'bounce') ev.push(e.kind)
+    expect(ev).toContain('ground')
+  })
+  it('발판 위에 올라설 수 있고, ↓를 누르고 있으면 내려온다', () => {
+    const m = new Match(DP, DP); toFight(m)
+    m.platforms = [{ x: m.fighters[0].x, y: 60, w: 120 }]
+    m.step([press('up'), idle()])
+    for (let i = 0; i < 80; i++) m.step([idle(), idle()])
+    expect(m.fighters[0].y).toBe(60)
+    for (let i = 0; i < 40; i++) m.step([press('down'), idle()])
+    for (let i = 0; i < 40; i++) m.step([idle(), idle()])
+    expect(m.fighters[0].y).toBe(0)
+  })
+  it('근접 공격으로 투사체를 상쇄하고, 대시 순간에는 투사체를 뚫고 지나간다', () => {
+    const shoot = (p2: (i: number) => Partial<InputState>) => {
+      const m = new Match(DP, DP); toFight(m)
+      const [a, b] = m.fighters
+      a.trait.lens = 2; b.x = a.x + 140
+      const hp = b.hp
+      for (let i = 0; i < 60; i++) m.step([i === 0 ? press('special') : idle(), { ...idle(), ...p2(i) }])
+      return hp - b.hp
+    }
+    expect(shoot(() => ({}))).toBeGreaterThan(0)
+    expect(shoot((i) => (i === 8 ? { heavy: true } : {}))).toBe(0)
+    expect(shoot((i) => (i === 10 || i === 12 ? { left: true } : {}))).toBe(0)
+  })
+})
