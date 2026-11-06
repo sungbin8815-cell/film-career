@@ -40,10 +40,10 @@ export class SelectScene extends Phaser.Scene {
     })
 
     if (this.mode === 'vsai') {
-      button(this, 70, 254, 110, 22, '← 뒤로', () => this.back())
-      button(this, 192, 254, 110, 22, '랜덤', () => { this.picked = Math.floor(Math.random() * CHARACTERS.length); sfx('select'); this.refresh() })
-      this.nextBtn = button(this, 370, 254, 170, 22, '', () => this.next(), { color: 0x6a2c91 })
-    } else button(this, W / 2, 254, 140, 22, '← 메뉴', () => this.scene.start('Menu'))
+      button(this, 70, 248, 110, 22, '← 뒤로', () => this.back())
+      button(this, 192, 248, 110, 22, '랜덤', () => { this.picked = Math.floor(Math.random() * CHARACTERS.length); sfx('select'); this.refresh() })
+      this.nextBtn = button(this, 370, 248, 170, 22, '', () => this.next(), { color: 0x6a2c91 })
+    } else button(this, W / 2, 248, 140, 22, '← 메뉴', () => this.scene.start('Menu'))
     this.refresh()
     this.input.keyboard?.on('keydown-ENTER', () => this.mode === 'vsai' && this.next())
     this.input.keyboard?.on('keydown-RIGHT', () => { this.picked = (this.picked + 1) % CHARACTERS.length; this.refresh() })
@@ -75,7 +75,7 @@ export class SelectScene extends Phaser.Scene {
     const L = this.add.container(0, 0)
     this.panel = L
     const x0 = 262
-    L.add(this.add.rectangle(x0 - 6, 26, 220, 214, COLOR.panel).setOrigin(0).setStrokeStyle(2, hex(c.color)))
+    L.add(this.add.rectangle(x0 - 6, 26, 220, 208, COLOR.panel).setOrigin(0).setStrokeStyle(2, hex(c.color)))
     const skin = p2 && c.id === CHARACTERS[this.p1].id ? `${c.id}_alt` : c.id
     ensureFighterTexture(this, skin)
     const spr = this.add.sprite(x0 + 32, 104, skin).setOrigin(0.5, FOOT_Y / FH).setScale(1.1).play(animKey(skin, 'idle'))
@@ -95,7 +95,7 @@ export class SelectScene extends Phaser.Scene {
     const m = c.moves
     L.add(text(this, x0 + 104, 136, `특 ${m.special1?.name} · ↓특 ${m.special2?.name}\n필살 ${m.super?.name}`, 11, COLOR.accent).setAlign('center').setLineSpacing(0))
     const combos = c.combos.map((k) => `${k.seq.map((t) => BTN_LABEL[t]).join('')}  ${m[k.move]?.name}`)
-    L.add(text(this, x0 + 2, 152, combos.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(-1))
+    L.add(text(this, x0 + 2, 150, combos.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(-2))
   }
 }
 

@@ -4,8 +4,10 @@
 :root { color-scheme: dark; --bg: #0d0b17; --panel: #231f3a; --line: #0a0812; --accent: #ffd23f; --ink: #fff8e7; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: Galmuri11, monospace; overflow: hidden; overscroll-behavior: none; touch-action: none; user-select: none; -webkit-user-select: none; }
-#app { position: fixed; inset: 0; display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-#game { position: absolute; inset: 0; }
+/* 높이는 실제로 보이는 영역(--app-h, main.ts에서 갱신) → 주소창·툴바·인앱 브라우저 하단 바에 잘리지 않음 */
+#app { position: fixed; left: 0; top: 0; width: 100%; height: var(--app-h, 100dvh); display: flex; flex-direction: column; }
+/* 게임 화면은 노치·홈 인디케이터(safe-area) 안쪽에만 */
+#game { position: absolute; top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left); right: env(safe-area-inset-right); }
 #game canvas { image-rendering: pixelated; display: block; }
 
 /* ───── 터치 콘솔: 게임 화면 양쪽 아래에 겹침 (가로 전용) ───── */

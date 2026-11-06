@@ -27,8 +27,8 @@ export class StageScene extends Phaser.Scene {
     text(this, W / 2, 32, '막내로 시작해서 스테이지를 깰 때마다 승진합니다', 11, COLOR.dim)
     const prog = loadProgress()
     CHARACTERS.forEach((c, i) => {
-      const x = 90 + (i % 3) * 150, y = 98 + Math.floor(i / 3) * 96
-      const card = this.add.rectangle(x, y, 140, 88, COLOR.panel).setStrokeStyle(2, COLOR.line)
+      const x = 90 + (i % 3) * 150, y = 92 + Math.floor(i / 3) * 92
+      const card = this.add.rectangle(x, y, 140, 84, COLOR.panel).setStrokeStyle(2, COLOR.line)
       this.add.sprite(x - 40, y + 32, c.id, 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(1)
       text(this, x + 22, y - 28, c.dept, 12, c.color)
       const s = prog[c.id]
@@ -40,7 +40,7 @@ export class StageScene extends Phaser.Scene {
       for (let k = 0; k < 5; k++) this.add.rectangle(x - 2 + k * 12, y + 30, 9, 5, s && (s.cleared || k < s.stage) ? 0xffd23f : 0x0a0812).setStrokeStyle(1, 0x3a3456)
       card.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('confirm'); this.scene.restart({ char: c.id }) })
     })
-    button(this, W / 2, 252, 140, 22, '← 메뉴', () => this.scene.start('Menu'))
+    button(this, W / 2, 246, 140, 22, '← 메뉴', () => this.scene.start('Menu'))
   }
 
   /** 스테이지 지도: 5칸 + 다음 상대 소개 */
@@ -77,9 +77,9 @@ export class StageScene extends Phaser.Scene {
       text(this, W / 2 + 100, 200, titleOf(oppId, st.oppRank, st.boss), 11, st.boss ? COLOR.accent : COLOR.red)
       text(this, W / 2, 140, 'VS', 16, COLOR.ink)
       text(this, W / 2, 222, `${opp.name}: "${st.taunt}"`, 11, COLOR.ink).setWordWrapWidth(420).setAlign('center')
-      button(this, W / 2 + 90, 252, 150, 22, '촬영 시작! 🎬', () => { sfx('slate'); this.scene.start('Fight', { p1: id, p2: oppId, stage }) }, { color: 0x6a2c91 })
+      button(this, W / 2 + 90, 246, 150, 22, '촬영 시작! 🎬', () => { sfx('slate'); this.scene.start('Fight', { p1: id, p2: oppId, stage }) }, { color: 0x6a2c91 })
     }
-    button(this, 66, 252, 110, 22, '← 부서 선택', () => this.scene.restart({ char: undefined }))
-    button(this, W / 2 - 50, 252, 110, 22, '처음부터', () => { saveProgress(id, { stage: 0, cleared: false }); this.scene.restart({ char: id }) })
+    button(this, 66, 246, 110, 22, '← 부서 선택', () => this.scene.restart({ char: undefined }))
+    button(this, W / 2 - 50, 246, 110, 22, '처음부터', () => { saveProgress(id, { stage: 0, cleared: false }); this.scene.restart({ char: id }) })
   }
 }

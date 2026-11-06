@@ -39,5 +39,15 @@ window.addEventListener('pointerdown', () => {
     .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
     .catch(() => { /* 거부되거나 지원 안 함: 그대로 진행 */ })
 }, { once: true })
-// 화면 회전·크기 변경 대응
-window.addEventListener('resize', () => game.scale.refresh())
+// 화면 회전·크기 변경 대응: 실제로 보이는 높이에 맞춤 (모바일 브라우저 툴바·인앱 브라우저 하단 바 대응)
+function fitViewport() {
+  const vv = window.visualViewport
+  const h = Math.round(vv ? vv.height : window.innerHeight)
+  document.documentElement.style.setProperty('--app-h', `${h}px`)
+  game.scale.refresh()
+}
+fitViewport()
+window.addEventListener('resize', fitViewport)
+window.visualViewport?.addEventListener('resize', fitViewport)
+window.addEventListener('orientationchange', () => { fitViewport(); setTimeout(fitViewport, 300); setTimeout(fitViewport, 800) })
+document.addEventListener('fullscreenchange', () => setTimeout(fitViewport, 100))

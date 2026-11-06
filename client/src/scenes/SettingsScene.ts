@@ -28,6 +28,6 @@ export class SettingsScene extends Phaser.Scene {
       '콤보(공통): 약약강 · 약강강 · 강강 · ▼+강',
       '약약특(SP10) · 약강특(SP25) · 기술 이름은 CHARACTER에서',
     ].join('\n'), 11, COLOR.ink).setAlign('center').setLineSpacing(2)
-    button(this, W / 2, 250, 120, 22, '← 메뉴', () => this.scene.start('Menu'))
+    button(this, W / 2, 246, 120, 22, '← 메뉴', () => this.scene.start('Menu'))
   }
 }
