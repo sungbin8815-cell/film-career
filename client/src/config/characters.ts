@@ -1,286 +1,497 @@
-// 캐릭터 데이터. 숫자만 바꿔도 밸런스가 바뀝니다. (체력 1000 기준)
-// 스킬 구조 (LoL처럼): 약·강 기본기 + Q(특) · W(↓특 또는 W 버튼) · E(고유) · R(필살, SP 100) + 캐릭터 패시브·고유 게이지
-//   Q·W·E는 쿨타임(cd, 프레임), R은 SP 게이지. 특수 효과는 effect 이름으로 core/Traits.ts에서 처리
-// combos: 버튼 순서 → 새 기술 (L 약, H 강, S Q, X 필살, d = ↓ 같이)
-// rank: 스테이지 모드에서 그 기술을 쓸 수 있게 되는 직급 (0 막내 · 1 서드 · 2 세컨드 · 3 퍼스트 · 4 감독)
-// anim: 쓸 동작 (gfx/poses.ts, gfx/charPoses.ts의 이름). 없으면 기술 id와 같은 동작
-// 기술표 전체는 MOVES.md (npm run moves 로 다시 만들 수 있음)
-import type { CharacterData, ComboDef, MoveData, MoveId } from '../core/types'
+// 캐릭터 데이터. 숫자만 바꿔도 밸런스가 바뀝니다 (체력 1000 기준, 스테이지 가로 1200).
+// ─ 조작: A 약 · B 강 · C 직업기 · D 특성기 · R 궁극기(SP 100) × 방향(중립 n·앞 f·뒤 b·위 u·아래 d·공중 air·공중↓ aird·대시 dash)
+// ─ 기술 칸 이름 `${버튼}_${방향}`, 특성 모드 변형은 `칸~모드` (렌즈 wide/tele, 분장 creature, 배우 sageuk/horror)
+// ─ 커맨드(캐릭터 고유): seq = 입력 순서. f 앞 · b 뒤 · u 위 · d 아래 · dash 대시 · bs 백스텝 · 버튼 A B C D
+// ─ anim 't:템플릿:장비' = gfx/motions.ts 과장 동작 (장비 s 한 손·l 긴 것·n 맨손)
+// 기술표 전체: MOVES.md (npm run moves)
+import type { CharacterData, Command, MoveData, MoveId, ProjectileSpec } from '../core/types'
 
-/** 판정 없이 효과만 내는 스킬 (startup 프레임에 effect 발동) */
-function fx(id: MoveId, name: string, effect: string, startup: number, recovery: number, o: Partial<MoveData> = {}): MoveData {
-  return { id, name, effect, rank: 0, startup, active: 1, recovery, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, meterGain: 0, sfx: 'trait', ...o }
-}
-
-const TITLES = (head: string): CharacterData['titles'] => ['막내', '서드', '세컨드', '퍼스트', head]
-/** 모든 캐릭터가 같은 입력으로 쓰는 커맨드 콤보 */
-const STD_COMBOS: ComboDef[] = [
-  { seq: ['L', 'L', 'L'], move: 'jab3' },       // 약 약 약 → 3타 마무리
-  { seq: ['L', 'L', 'H'], move: 'upper' },      // 약 약 강 → 띄우기
-  { seq: ['L', 'H', 'H'], move: 'zoompunch' },  // 약 강 강 → 날려버리기
-  { seq: ['H', 'H'], move: 'spin' },            // 강 강 → 회전 2연타
-  { seq: ['L', 'L', 'S'], move: 'flash' },      // 약 약 Q → 긴 경직 (SP 10)
-  { seq: ['L', 'H', 'S'], move: 'rush' },       // 약 강 Q → 연타 러시 (SP 25)
-  { seq: ['dL'], move: 'lowjab' },              // ↓ + 약 → 빠른 하단
-  { seq: ['dH'], move: 'sweep' },               // ↓ + 강 → 하단 다운
-]
-
-export const DP: CharacterData = {
-  id: 'dp', atk: 0.93, assist: 'special1', name: '촬영감독', nameEn: 'DP', color: '#3b82f6', dept: '촬영부', titles: TITLES('촬영감독'), trait: 'lens',
-  desc: '렌즈를 갈아 끼우며 싸우는 만능형. 광각은 러시, 망원은 저격.',
-  stats: { power: 3, speed: 3, reach: 3 },
-  hp: 1060, walkSpeed: 1.7, runSpeed: 3.4, jumpV: 6.4, airSpeed: 2.0, gravity: 0.36,
-  hurt: { w: 22, h: 50, crouchH: 32 },
-  moves: {
-    // ───── 기본기 ─────
-    light: { id: 'light', rank: 0, name: '카메라 손잡이 타격', startup: 4, active: 3, recovery: 9, damage: 40, chip: 4, hitstun: 16, blockstun: 9, kbX: 1.4,
-      hitbox: { x: 8, y: 26, w: 24, h: 16 }, meterGain: 5, cancelInto: ['light', 'heavy', 'special1', 'special2', 'super', 'trait'], sfx: 'light' },
-    heavy: { id: 'heavy', rank: 0, name: '삼각대 휘두르기', startup: 10, active: 5, recovery: 18, damage: 85, chip: 10, hitstun: 22, blockstun: 15, kbX: 3.4,
-      hitbox: { x: 6, y: 16, w: 40, h: 28 }, meterGain: 9, cancelInto: ['special1', 'special2', 'super', 'trait'], sfx: 'heavy' },
-    jl: { id: 'jl', rank: 0, name: '점프 카메라 내려치기', startup: 4, active: 8, recovery: 6, damage: 36, chip: 4, hitstun: 16, blockstun: 9, kbX: 1.2, overhead: true,
-      hitbox: { x: 4, y: 0, w: 22, h: 26 }, meterGain: 4, sfx: 'light' },
-    jh: { id: 'jh', rank: 0, name: '점프 삼각대 찍기', startup: 7, active: 8, recovery: 10, damage: 70, chip: 8, hitstun: 22, blockstun: 14, kbX: 2.4, overhead: true,
-      hitbox: { x: 0, y: -6, w: 34, h: 30 }, meterGain: 7, sfx: 'heavy' },
-    // ───── 스킬 ─────
-    special1: { id: 'special1', rank: 0, name: '숄더 어택', voice: '비켜! 장비 지나간다!', cd: 180, startup: 8, active: 16, recovery: 18,
-      damage: 90, chip: 14, hitstun: 26, blockstun: 16, kbX: 4.5, kbY: 3.2, hitbox: { x: 2, y: 12, w: 24, h: 32 }, meterGain: 6, dash: 4.8, afterimage: true, sfx: 'dash' },
-    special2: { id: 'special2', rank: 1, name: '조명 낙하', voice: '조명 들어갑니다~!', cd: 300, startup: 14, active: 1, recovery: 22,
-      damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, meterGain: 0,
-      projectile: { kind: 'lightstand', offsetX: 66, startY: 150, vx: 0, vy: -5.5, w: 20, h: 26, life: 60, damage: 105, chip: 16, hitstun: 30, blockstun: 18, kbX: 1.5, kbY: 2.6 }, sfx: 'drop' },
-    // 광각 렌즈일 때 Q·W
-    special1_wide: { id: 'special1_wide', rank: 0, name: '핸드헬드 러시', voice: '바짝 붙어서 찍는다!', anim: 'rush', cd: 150, startup: 5, active: 24, recovery: 16,
-      damage: 24, chip: 4, hitstun: 14, blockstun: 8, kbX: 0.8, lastHitKbY: 4, hitbox: { x: 2, y: 14, w: 26, h: 32 }, meterGain: 5, dash: 3.2, multiHit: { interval: 6, max: 4 }, afterimage: true, juggle: true, sfx: 'dash' },
-    special2_wide: { id: 'special2_wide', rank: 1, name: '로우앵글 슬라이딩', voice: '로우앵글 간다!', anim: 'sweep', cd: 240, startup: 6, active: 14, recovery: 16,
-      damage: 64, chip: 8, hitstun: 20, blockstun: 12, kbX: 1.8, kbY: 2.6, low: true, hitbox: { x: 2, y: 0, w: 32, h: 14 }, meterGain: 6, dash: 4.2, sfx: 'dash' },
-    // 망원 렌즈일 때 Q·W (초점이 가득 차면 크리티컬)
-    special1_tele: { id: 'special1_tele', rank: 0, name: '망원 스나이프', voice: '포커스… 찰칵!', anim: 'flash', cd: 150, startup: 12, active: 1, recovery: 18,
-      damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, meterGain: 0,
-      projectile: { kind: 'snipe', offsetX: 26, startY: 30, vx: 9, vy: 0, w: 18, h: 10, life: 50, damage: 66, chip: 10, hitstun: 24, blockstun: 14, kbX: 2.6 }, sfx: 'shutter' },
-    special2_tele: { id: 'special2_tele', rank: 1, name: '줌인 당기기', voice: '줌~ 인!', anim: 'zoompunch', cd: 300, startup: 10, active: 1, recovery: 20,
-      damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, meterGain: 0,
-      projectile: { kind: 'snipe', offsetX: 24, startY: 26, vx: 7, vy: 0, w: 18, h: 14, life: 40, damage: 40, chip: 6, hitstun: 30, blockstun: 14, kbX: 4, pull: true }, sfx: 'shutter' },
-    super: { id: 'super', rank: 3, name: '원테이크', voice: '컷 없이 간다! 원테이크!!', startup: 14, active: 42, recovery: 22, cost: 100,
-      damage: 52, chip: 8, hitstun: 18, blockstun: 10, kbX: 1.2, lastHitKbY: 6, hitbox: { x: 0, y: 8, w: 32, h: 40 }, meterGain: 0, dash: 3.6, afterimage: true, finisher: true, juggle: true,
-      multiHit: { interval: 8, max: 5 }, sfx: 'super' },
-    trait: fx('trait', '렌즈 교체', 'lens', 10, 6, { cd: 90 }),
-
-    // ───── 커맨드 콤보 기술 ─────
-    jab3: { id: 'jab3', rank: 0, name: '3타 렌즈캡 날리기', combo: true, startup: 5, active: 4, recovery: 16, damage: 52, chip: 6, hitstun: 20, blockstun: 12, kbX: 4.2,
-      hitbox: { x: 8, y: 22, w: 28, h: 20 }, meterGain: 7, cancelInto: ['special1', 'special2', 'super', 'trait'], sfx: 'heavy' },
-    lowjab: { id: 'lowjab', rank: 0, name: '발목 노리기', combo: true, startup: 4, active: 3, recovery: 10, damage: 30, chip: 3, hitstun: 14, blockstun: 8, kbX: 1, low: true,
-      hitbox: { x: 6, y: 0, w: 26, h: 14 }, meterGain: 4, cancelInto: ['light', 'special1', 'special2', 'super', 'trait'], sfx: 'light' },
-    upper: { id: 'upper', rank: 1, name: '트라이포드 어퍼', combo: true, finisher: true, juggle: true, voice: '하이앵글!!', startup: 6, active: 5, recovery: 22,
-      damage: 72, chip: 8, hitstun: 24, blockstun: 14, kbX: 1.2, kbY: 7, hitbox: { x: 2, y: 24, w: 30, h: 40 }, meterGain: 10, dash: 2.4, cancelInto: ['special1', 'super', 'trait'], sfx: 'heavy' },
-    spin: { id: 'spin', rank: 2, name: '삼각대 회전베기', combo: true, voice: '360도 회전숏!', startup: 5, active: 14, recovery: 18,
-      damage: 46, chip: 6, hitstun: 20, blockstun: 12, kbX: 2.6, lastHitKbY: 3.6, hitbox: { x: -14, y: 10, w: 56, h: 32 }, meterGain: 8, multiHit: { interval: 7, max: 2 }, juggle: true, finisher: true, sfx: 'heavy' },
-    zoompunch: { id: 'zoompunch', rank: 2, name: '줌인 펀치', combo: true, finisher: true, voice: '줌~인!', startup: 9, active: 7, recovery: 20,
-      damage: 98, chip: 12, hitstun: 26, blockstun: 16, kbX: 6.5, kbY: 2.4, hitbox: { x: 6, y: 20, w: 30, h: 22 }, meterGain: 10, dash: 3.4, afterimage: true, sfx: 'dash' },
-    flash: { id: 'flash', rank: 2, name: '플래시 버스트', combo: true, voice: '찰칵! 눈부시지?', startup: 6, active: 4, recovery: 16, cost: 10,
-      damage: 30, chip: 4, hitstun: 48, blockstun: 12, kbX: 0.6, hitbox: { x: -4, y: 10, w: 56, h: 50 }, meterGain: 4, cancelInto: ['heavy', 'special1', 'super', 'trait'], sfx: 'shutter', expose: 30 },
-    rush: { id: 'rush', rank: 3, name: '롱테이크 러시', combo: true, finisher: true, voice: '컷 안 해! 계속 가!', startup: 6, active: 32, recovery: 20, cost: 25,
-      damage: 28, chip: 4, hitstun: 14, blockstun: 8, kbX: 1, lastHitKbY: 5, hitbox: { x: 2, y: 14, w: 30, h: 34 }, meterGain: 0, dash: 2.2, afterimage: true, juggle: true, multiHit: { interval: 6, max: 5 }, sfx: 'dash' },
-    sweep: { id: 'sweep', rank: 0, name: '로우앵글 스윕', combo: true, voice: '로우앵글!', startup: 8, active: 5, recovery: 18, low: true,
-      damage: 62, chip: 8, hitstun: 20, blockstun: 12, kbX: 1.5, kbY: 2.2, hitbox: { x: 4, y: 0, w: 34, h: 12 }, meterGain: 7, cancelInto: ['special1', 'super', 'trait'], sfx: 'heavy' },
-  },
-  combos: STD_COMBOS,
-}
-
-/** 촬영감독 기본기·콤보를 바탕으로 이름·수치만 바꿔 새 캐릭터 기술표를 만듦 (렌즈 전용 기술은 제외) */
-type Over = Partial<MoveData> & { name: string }
-const SHARED = ['light', 'heavy', 'jl', 'jh', 'super', 'jab3', 'lowjab', 'upper', 'spin', 'zoompunch', 'flash', 'rush', 'sweep']
-function derive(over: Record<MoveId, Over>, own: Record<MoveId, MoveData>): Record<MoveId, MoveData> {
-  const out: Record<MoveId, MoveData> = {}
-  for (const id of SHARED) {
-    const base = DP.moves[id]!
-    const o = over[id]
-    out[id] = { ...base, voice: undefined, expose: undefined, ...o, id, anim: o?.anim ?? id }
+type M = Partial<MoveData>
+/** 판정 있는 기술: [발동, 판정, 경직], 피해, 판정 [앞x, 높이y, 폭w, 높이h] */
+function atk(name: string, f: [number, number, number], dmg: number, hb: [number, number, number, number], o: M = {}): MoveData {
+  return {
+    id: '', name, startup: f[0], active: f[1], recovery: f[2], damage: dmg,
+    chip: Math.round(dmg * 0.12), hitstun: Math.round(14 + dmg * 0.12), blockstun: Math.round(8 + dmg * 0.08),
+    kbX: +(1 + dmg * 0.03).toFixed(2), hitbox: { x: hb[0], y: hb[1], w: hb[2], h: hb[3] }, meterGain: Math.round(dmg / 9) + 2, ...o,
   }
-  // W는 스테이지 모드 '서드'부터
-  for (const [id, m] of Object.entries(own)) out[id] = { ...m, id, rank: id === 'special2' ? 1 : m.rank ?? 0 }
-  return out
 }
-/** 스킬 하나 (판정 있는 기술) — 촬영감독 숄더 어택 수치를 기본으로 */
-const skill = (id: MoveId, o: Partial<MoveData> & { name: string }): MoveData => ({ ...DP.moves.special1!, dash: undefined, afterimage: false, kbY: undefined, voice: undefined, ...o, id })
-const noHit = { damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, active: 1 }
+/** 투사체 기술 */
+function shot(name: string, f: [number, number, number], p: Partial<ProjectileSpec> & { kind: string; damage: number }, o: M = {}): MoveData {
+  const proj: ProjectileSpec = { offsetX: 26, startY: 26, vx: 6, vy: 0, w: 18, h: 14, life: 80, chip: Math.round(p.damage * 0.12), hitstun: Math.round(16 + p.damage * 0.12), blockstun: Math.round(10 + p.damage * 0.06), kbX: 2.5, ...p }
+  return { ...atk(name, f, 0, [0, 0, 0, 0]), meterGain: 0, projectile: proj, ...o }
+}
+/** 판정 없이 효과만 내는 기술 (startup 프레임에 effect) */
+function eff(name: string, effect: string, f: [number, number, number], o: M = {}): MoveData {
+  return { ...atk(name, f, 0, [0, 0, 0, 0]), meterGain: 0, effect, sfx: 'trait', ...o }
+}
+const air = { air: true, overhead: true } as const
+const TITLES = (head: string): CharacterData['titles'] => ['막내', '서드', '세컨드', '퍼스트', head]
 
-// ─────────── 연출감독: 함정·구속·전장 통제 (CC형) ───────────
+/** 기술표 정리: id 채우기, 스테이지 모드 직급(rank) 배분 */
+function build(moves: Record<MoveId, MoveData>, commands: Command[]): Record<MoveId, MoveData> {
+  const cmdIds = new Set(commands.map((c) => c.move))
+  for (const [id, m] of Object.entries(moves)) {
+    m.id = id
+    if (cmdIds.has(id)) m.combo = true
+    if (m.rank != null) continue
+    const base = id.split('~')[0]
+    if (id === 'R') m.rank = 3
+    else if (m.combo) { const c = commands.find((k) => k.move === id)!; m.rank = c.seq.every((t) => 'ABCD'.includes(t)) ? 1 : c.seq.length >= 3 ? 3 : 2 }
+    else if (/^[AB]_/.test(base) || base === 'C_n' || base === 'D_n') m.rank = 0
+    else m.rank = 1
+  }
+  return moves
+}
+
+// ════════════════════════════════════════════ 촬영감독 ════════════════════════════════════════════
+// 렌즈마다 완전히 다른 캐릭터: 광각(초근접 러시) / 표준(중거리 밸런스) / 망원(화면 끝까지 닿는 저격수)
+const dpCmds: Command[] = [
+  { seq: ['A', 'A', 'B'], move: 'tripod_upper' },
+  { seq: ['A', 'B', 'B'], move: 'zoom_punch' },
+  { seq: ['B', 'B'], move: 'spin_360' },
+  { seq: ['C', 'C'], move: 'shutter_burst' },
+  { seq: ['d', 'f', 'C'], move: 'dolly_track' },
+  { seq: ['d', 'u', 'B'], move: 'crane_up' },
+  { seq: ['bs', 'C'], move: 'pullout_flash' },
+  { seq: ['dash', 'D'], move: 'swap_rush' },
+  { seq: ['bs', 'D'], move: 'swap_snipe' },
+  { seq: ['d', 'C'], move: 'birdseye', air: true },
+  { seq: ['d', 'd', 'A'], move: 'lowangle_burst' },
+]
+export const DP: CharacterData = {
+  id: 'dp', name: '촬영감독', nameEn: 'DP', color: '#3b82f6', dept: '촬영부', titles: TITLES('촬영감독'), trait: 'lens',
+  desc: '렌즈를 갈아 끼우면 다른 사람이 된다. 광각은 코앞 러시, 망원은 화면 끝 저격.',
+  style: '모드 전환형 · 근거리↔원거리', difficulty: 2, showcase: ['C_n~tele', 'C_n~wide', 'B_n'],
+  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.24, assist: 'C_f',
+  hp: 1040, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airSpeed: 2.2, gravity: 0.34, airDashes: 1,
+  hurt: { w: 22, h: 50, crouchH: 32 },
+  commands: dpCmds,
+  moves: build({
+    A_n: atk('카메라 잽', [4, 3, 9], 34, [8, 26, 28, 16], { anim: 't:jab:s', sfx: 'light' }),
+    A_f: atk('렌즈 찌르기', [6, 4, 12], 40, [10, 22, 44, 16], { anim: 't:thrust:s' }),
+    A_u: atk('하이앵글 올려치기', [5, 4, 14], 40, [0, 40, 32, 36], { kbY: 4.5, juggle: true, anim: 't:upper:s' }),
+    A_d: atk('로우앵글 킥', [5, 3, 10], 30, [8, 0, 32, 14], { low: true, anim: 't:crouchpoke:s' }),
+    A_air: atk('공중 카메라', [4, 8, 8], 32, [4, 0, 30, 28], { ...air, anim: 't:airswing:s' }),
+    A_aird: atk('탑샷 찍기', [6, 8, 10], 40, [-6, -12, 36, 30], { ...air, groundBounce: true, anim: 't:airspike:s' }),
+    A_dash: atk('돌리 잽', [4, 6, 12], 36, [8, 20, 32, 20], { dash: 3, anim: 't:dashstrike:s' }),
+    B_n: atk('삼각대 풀스윙', [11, 5, 20], 82, [4, 14, 64, 32], { kbX: 6.5, kbY: 4, wallBounce: true, anim: 't:swing:l', sfx: 'heavy' }),
+    B_f: atk('삼각대 창찌르기', [12, 5, 20], 74, [10, 22, 88, 14], { kbX: 5.5, anim: 't:thrust:l' }),
+    B_u: atk('삼각대 헬리콥터', [9, 14, 18], 28, [-24, 40, 74, 32], { multiHit: { interval: 5, max: 3 }, juggle: true, lastHitKbY: 6, anim: 't:spin:l' }),
+    B_d: atk('트래킹 슬라이드', [8, 12, 18], 64, [6, 0, 42, 14], { low: true, dash: 4.4, kbY: 3, anim: 't:sweep:l' }),
+    B_air: atk('공중 삼각대', [7, 8, 12], 64, [0, -4, 52, 36], { ...air, anim: 't:airswing:l' }),
+    B_aird: atk('삼각대 다이브', [9, 14, 14], 70, [-4, -14, 38, 30], { ...air, lift: -7, dash: 2.4, groundBounce: true, anim: 't:dive:l' }),
+    B_dash: atk('돌리 인', [6, 10, 18], 78, [6, 14, 42, 30], { dash: 5, kbX: 6.5, kbY: 3, wallBounce: true, afterimage: true, anim: 't:dashstrike:l' }),
+    C_n: shot('플래시 탄', [10, 1, 18], { kind: 'snipe', vx: 7, life: 55, damage: 50 }, { anim: 't:aim:s', sfx: 'shutter' }),
+    C_f: atk('숄더 어택', [8, 16, 18], 80, [2, 12, 26, 32], { cd: 120, dash: 5, kbX: 5, kbY: 3, afterimage: true, anim: 't:dashstrike:s', sfx: 'dash', voice: '비켜! 장비 지나간다!' }),
+    C_u: atk('붐업 플래시', [8, 4, 18], 48, [-10, 50, 60, 60], { kbY: 5, juggle: true, anim: 't:burst:s', sfx: 'shutter' }),
+    C_d: shot('조명 낙하', [14, 1, 22], { kind: 'lightstand', offsetX: 120, startY: 150, vx: 0, vy: -5.5, w: 20, h: 26, life: 60, damage: 88, kbX: 1.5, kbY: 2.6 }, { cd: 150, anim: 't:throw:n', sfx: 'drop', voice: '조명 들어갑니다~!' }),
+    C_air: shot('공중 플래시', [8, 1, 14], { kind: 'snipe', vx: 6, vy: -2.5, damage: 40 }, { air: true, anim: 't:aim:s', sfx: 'shutter' }),
+    D_n: eff('렌즈 교체', 'lens', [8, 1, 6], { cd: 30, anim: 't:pose:s' }),
+    D_f: eff('광각 장착', 'lensWide', [6, 1, 6], { cd: 30, anim: 't:pose:s' }),
+    D_b: eff('망원 장착', 'lensTele', [6, 1, 6], { cd: 30, anim: 't:pose:s' }),
+    D_u: eff('표준 장착', 'lensStd', [6, 1, 6], { cd: 30, anim: 't:pose:s' }),
+    // 광각: 코앞에서 쉴 새 없이
+    'A_n~wide': atk('핸드헬드 연타', [3, 2, 6], 26, [6, 24, 26, 16], { anim: 't:jab:s', sfx: 'light' }),
+    'B_n~wide': atk('360 회전샷', [8, 16, 16], 28, [-22, 10, 64, 34], { multiHit: { interval: 5, max: 3 }, lastHitKbY: 4.5, anim: 't:spin:s' }),
+    'B_f~wide': atk('짐벌 돌진', [6, 10, 16], 70, [6, 14, 36, 30], { dash: 6, kbX: 6, kbY: 3, afterimage: true, anim: 't:dashstrike:s' }),
+    'C_n~wide': atk('핸드헬드 러시', [5, 26, 16], 20, [2, 14, 30, 32], { multiHit: { interval: 5, max: 5 }, dash: 3.4, lastHitKbY: 5, afterimage: true, juggle: true, anim: 't:flurry:s', voice: '바짝 붙어서 찍는다!' }),
+    'C_f~wide': atk('짐벌 슬라이드', [6, 14, 16], 60, [4, 0, 36, 14], { low: true, dash: 5, kbY: 3, anim: 't:sweep:s' }),
+    // 망원: 화면 끝까지 닿는 저격 (근접은 약함)
+    'A_n~tele': shot('망원 견제샷', [8, 1, 14], { kind: 'snipe', vx: 11, life: 100, damage: 30 }, { anim: 't:aim:s', sfx: 'shutter' }),
+    'B_n~tele': atk('줌 레이저', [16, 6, 24], 66, [20, 26, 580, 10], { kbX: 4, vfx: 'laser', anim: 't:aim:l', sfx: 'shutter' }),
+    'C_n~tele': shot('스나이프', [14, 1, 20], { kind: 'snipe', vx: 15, life: 90, w: 22, h: 12, damage: 62, kbX: 3 }, { cd: 50, anim: 't:aim:s', sfx: 'shutter', voice: '포커스… 찰칵!' }),
+    'C_f~tele': shot('줌인 당기기', [12, 1, 20], { kind: 'snipe', vx: 10, life: 80, damage: 30, hitstun: 32, kbX: 4.5, pull: true }, { cd: 120, anim: 't:aim:s', voice: '줌~ 인!' }),
+    'C_b~tele': atk('줌아웃 밀어내기', [10, 5, 18], 30, [10, 10, 100, 44], { kbX: 9, wallBounce: true, vfx: 'cone', anim: 't:burst:s', voice: '줌 아웃!' }),
+    'B_d~tele': shot('거치 저격', [20, 1, 20], { kind: 'snipe', startY: 8, vx: 14, life: 90, damage: 52 }, { anim: 't:crouchpoke:l', sfx: 'shutter' }),
+    R: atk('원테이크', [12, 20, 30], 40, [0, 8, 64, 44], { cost: 100, dash: 5, ult: { total: 320, cine: 150 }, afterimage: true, anim: 't:dashstrike:s', sfx: 'super', voice: '컷 없이 간다! 원테이크!!' }),
+    // ─── 고유 커맨드 ───
+    tripod_upper: atk('트라이포드 어퍼', [6, 5, 22], 70, [2, 24, 36, 46], { kbY: 8, juggle: true, finisher: true, anim: 't:upper:l', voice: '하이앵글!!' }),
+    zoom_punch: atk('줌인 펀치', [9, 7, 20], 92, [6, 20, 34, 22], { dash: 4, kbX: 8, kbY: 3, wallBounce: true, finisher: true, afterimage: true, anim: 't:dashstrike:s', voice: '줌~인!' }),
+    spin_360: atk('360도 회전촬영', [5, 14, 18], 44, [-24, 10, 72, 34], { multiHit: { interval: 7, max: 2 }, lastHitKbY: 4, juggle: true, anim: 't:spin:l' }),
+    shutter_burst: atk('연속 셔터', [6, 12, 16], 16, [10, 10, 74, 42], { multiHit: { interval: 4, max: 3 }, hitstun: 26, anim: 't:burst:s', sfx: 'shutter', voice: '찰칵찰칵찰칵!' }),
+    dolly_track: atk('달리 트랙 샷', [6, 30, 18], 22, [4, 12, 36, 34], { dash: 4, multiHit: { interval: 7, max: 4 }, lastHitKbY: 5, afterimage: true, anim: 't:flurry:s', voice: '트랙 깔았다!' }),
+    crane_up: atk('크레인 업', [8, 6, 26], 86, [-6, 30, 42, 74], { kbY: 10, juggle: true, lift: 5, finisher: true, anim: 't:upper:l', voice: '크레인 올려!' }),
+    pullout_flash: shot('풀아웃 플래시', [6, 1, 16], { kind: 'snipe', vx: 9, life: 70, damage: 46 }, { anim: 't:aim:s', sfx: 'shutter' }),
+    swap_rush: atk('렌즈 스왑 돌진', [6, 10, 18], 60, [6, 16, 38, 30], { effect: 'lensWide', dash: 6, kbX: 5, afterimage: true, anim: 't:dashstrike:s', voice: '광각으로!' }),
+    swap_snipe: shot('망원 즉사격', [10, 1, 16], { kind: 'snipe', vx: 14, life: 90, damage: 50 }, { effect: 'lensTele', anim: 't:aim:s', voice: '망원으로!' }),
+    birdseye: atk('버드아이 폭격', [8, 12, 14], 26, [-30, -54, 86, 54], { ...air, multiHit: { interval: 6, max: 2 }, anim: 't:airspike:s', sfx: 'shutter', voice: '부감샷!' }),
+    lowangle_burst: atk('로우앵글 연사', [4, 20, 12], 14, [6, 0, 40, 14], { low: true, multiHit: { interval: 5, max: 4 }, anim: 't:flurry:s' }),
+  }, dpCmds),
+}
+
+// ════════════════════════════════════════════ 연출감독 ════════════════════════════════════════════
+// 주먹은 약하다. 콘티(덫)·엑스트라를 깔고 "액션!"으로 판을 터뜨리는 사령관
+const directorCmds: Command[] = [
+  { seq: ['A', 'A', 'C'], move: 'ready_cue' },
+  { seq: ['B', 'B'], move: 'longtake_order' },
+  { seq: ['d', 'f', 'C'], move: 'extra_squad' },
+  { seq: ['b', 'f', 'C'], move: 'wire_extra' },
+  { seq: ['d', 'd', 'C'], move: 'conti_spread' },
+  { seq: ['dash', 'C'], move: 'closeup_summon' },
+  { seq: ['bs', 'B'], move: 'cut_shout' },
+  { seq: ['d', 'u', 'D'], move: 'rehearsal' },
+  { seq: ['bs', 'D'], move: 'slowmo_order' },
+  { seq: ['d', 'B'], move: 'topview_drop', air: true },
+]
 export const DIRECTOR: CharacterData = {
-  ...DP, atk: 0.97, assist: 'zoompunch', id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'), trait: 'mark',
-  desc: '콘티(함정)를 깔고 큐 사인으로 터뜨리는 전장 설계자. NG!로 공격을 끊는다.', stats: { power: 3, speed: 4, reach: 2 },
-  hp: 950, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.6,
-  moves: derive({
-    light: { name: '슬레이트 딱!', startup: 4, recovery: 9, damage: 38, sfx: 'slate' },
-    heavy: { name: '메가폰 후려치기', startup: 9, damage: 88 },
-    jl: { name: '점프 슬레이트', damage: 34 }, jh: { name: '점프 메가폰 찍기', damage: 66 },
-    super: { name: '리테이크!!', voice: '컷! 다시 갑니다! 리테이크!!', effect: 'retake', ...noHit, startup: 12, active: 1, recovery: 26, multiHit: undefined, dash: undefined, lastHitKbY: undefined, finisher: false },
-    jab3: { name: '컷 사인 손날', damage: 48 },
-    lowjab: { name: '발 위치 체크', damage: 28 },
-    upper: { name: 'NG 어퍼', voice: 'NG!!' },
-    zoompunch: { name: 'OK 컷 내려찍기', voice: '오케이~ 컷!', dash: 2.6 },
-    spin: { name: '메가폰 회전', voice: '다들 집중!' },
-    flash: { name: '슬레이트 플래시', voice: '씬 원, 컷 원!' },
-    rush: { name: '디렉션 폭풍', voice: '거기! 아니 거기! 아니!' },
-    sweep: { name: '발 맞춰!', voice: '동선 확인!' },
-  }, {
-    // Q: 콘티 설치 (밟으면 묶임, 최대 3개)
-    special1: fx('special1', '콘티 설치', 'trap', 10, 12, { cd: 70, voice: '여기서 대기!', anim: 'trait' }),
-    // W: NG! (받아치기 자세: 맞으면 공격을 끊고 상대가 굳음)
-    special2: fx('special2', 'NG!', 'parry', 3, 18, { cd: 210, active: 22, voice: 'NG!!', anim: 'parry' }),
-    // E: 큐 사인 (깔아 둔 콘티를 한꺼번에 터뜨림)
-    trait: fx('trait', '큐 사인', 'cue', 8, 14, { cd: 90, voice: '큐!!', anim: 'flash' }),
-  }),
+  ...DP, id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'), trait: 'mark',
+  desc: '직접 싸우지 않는다. 콘티와 엑스트라로 판을 짜고, "액션!" 한마디로 전부 터뜨린다.',
+  style: '설치·소환형 사령관', difficulty: 3, showcase: ['C_n', 'D_n', 'B_n'],
+  stats: { power: 2, speed: 3, reach: 4 }, atk: 1.38, assist: 'C_n',
+  hp: 960, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airDashes: 1,
+  commands: directorCmds,
+  moves: build({
+    A_n: atk('슬레이트 툭', [5, 3, 10], 26, [8, 26, 26, 16], { anim: 't:jab:s', sfx: 'slate' }),
+    A_f: atk('대본 찌르기', [6, 4, 12], 30, [10, 24, 36, 14], { anim: 't:thrust:s' }),
+    A_u: atk('슬레이트 올려치기', [6, 4, 14], 30, [0, 40, 30, 30], { kbY: 4, juggle: true, anim: 't:upper:s', sfx: 'slate' }),
+    A_d: atk('발 체크', [5, 3, 10], 24, [8, 0, 30, 14], { low: true, anim: 't:crouchpoke:n' }),
+    A_air: atk('공중 슬레이트', [4, 8, 8], 26, [4, 0, 28, 28], { ...air, anim: 't:airswing:s', sfx: 'slate' }),
+    A_aird: atk('하이앵글 다이브', [6, 14, 12], 40, [0, -10, 30, 30], { ...air, lift: -6, dash: 3, anim: 't:dive:n' }),
+    B_n: atk('메가폰 샤우트', [12, 8, 20], 30, [10, 8, 120, 48], { kbX: 8.5, vfx: 'cone', anim: 't:shout:l', sfx: 'shout', voice: '거기 비켜!!' }),
+    B_f: atk('슬레이트 딱!', [10, 4, 18], 56, [10, 24, 42, 20], { kbX: 4, anim: 't:overhead:s', sfx: 'slate' }),
+    B_u: atk('디렉터 체어 번쩍', [10, 6, 20], 48, [-10, 40, 52, 44], { kbY: 6, juggle: true, anim: 't:upper:l' }),
+    B_d: atk('레일 깔기', [9, 6, 18], 42, [6, 0, 64, 12], { low: true, kbY: 2.5, anim: 't:sweep:l' }),
+    B_air: atk('공중 메가폰', [7, 8, 12], 46, [0, -4, 48, 34], { ...air, anim: 't:airswing:l' }),
+    B_dash: atk('클로즈업 돌진', [6, 10, 18], 54, [6, 14, 36, 30], { dash: 5, kbX: 5, anim: 't:dashstrike:s' }),
+    C_n: eff('엑스트라 소환', 'extra', [12, 1, 20], { cd: 140, anim: 't:point:n', voice: '엑스트라 들어와!' }),
+    C_f: eff('콘티 던지기', 'trapFar', [10, 1, 14], { cd: 50, anim: 't:throw:n' }),
+    C_d: eff('콘티 설치', 'trap', [8, 1, 12], { cd: 40, anim: 'trait' }),
+    C_u: eff('크레인 엑스트라', 'extraDrop', [12, 1, 20], { cd: 240, anim: 't:point:n', voice: '위에서 떨어져!' }),
+    C_air: eff('공중 콘티 투하', 'trapHere', [6, 1, 12], { cd: 50, air: true, anim: 't:throw:n' }),
+    D_n: eff('액션!', 'action', [8, 1, 16], { cd: 60, anim: 'flash', voice: '레디~ 액션!!' }),
+    D_f: eff('점프컷 (나)', 'jumpcutSelf', [6, 1, 10], { cd: 110, anim: 't:blink:n', voice: '점프컷!' }),
+    D_b: eff('점프컷 (상대)', 'jumpcutOpp', [8, 1, 14], { cd: 220, anim: 't:point:n', voice: '거기 서!' }),
+    D_d: eff('NG!', 'parry', [3, 22, 18], { cd: 180, anim: 'parry', voice: 'NG!!' }),
+    R: atk('리테이크', [12, 10, 30], 30, [10, 8, 170, 52], { cost: 100, ult: { total: 300, cine: 170 }, vfx: 'cone', anim: 't:shout:l', sfx: 'super', voice: '컷! 다시 갑니다! 리테이크!!' }),
+    ready_cue: atk('레디~', [8, 4, 16], 30, [8, 20, 32, 24], { effect: 'extra', anim: 't:point:s', voice: '레디~' }),
+    longtake_order: atk('롱테이크 지시', [8, 8, 18], 40, [8, 14, 40, 30], { effect: 'extraRush', anim: 't:overhead:l', voice: '그대로 계속!' }),
+    extra_squad: eff('엑스트라 돌격대', 'extras2', [12, 1, 20], { cd: 300, anim: 't:point:n', voice: '전원 돌격!' }),
+    wire_extra: shot('와이어 액션 엑스트라', [10, 1, 18], { kind: 'extra', vx: 6, startY: 30, w: 22, h: 30, life: 120, damage: 50, kbY: 4 }, { cd: 180, anim: 't:throw:n', voice: '와이어 당겨!' }),
+    conti_spread: eff('콘티 3장', 'trap3', [10, 1, 16], { cd: 300, anim: 'trait', voice: '여기, 여기, 여기!' }),
+    closeup_summon: eff('클로즈업 소환', 'extra', [6, 1, 14], { cd: 140, anim: 't:point:n' }),
+    cut_shout: atk('"컷!" 대형 샤우트', [10, 10, 22], 38, [10, 0, 190, 62], { cd: 120, kbX: 10, wallBounce: true, vfx: 'cone', anim: 't:shout:l', sfx: 'shout', voice: '컷!!!' }),
+    rehearsal: eff('리허설', 'rehearsal', [8, 1, 14], { cd: 180, anim: 't:point:n', voice: '위치 잡아!' }),
+    slowmo_order: eff('슬로모션 지시', 'slowmo', [10, 1, 16], { cd: 420, anim: 'flash', voice: '슬로우 모션~' }),
+    topview_drop: atk('탑뷰 콘티 폭격', [8, 14, 14], 46, [-8, -12, 40, 34], { ...air, effect: 'trapHere', lift: -7, anim: 't:dive:n' }),
+  }, directorCmds),
 }
 
-// ─────────── 사운드감독: 맞으면서 모았다가 한 방에 (축적 방출형 탱커) ───────────
+// ════════════════════════════════════════════ 사운드감독 ════════════════════════════════════════════
+// 붐마이크가 여의봉처럼 늘어나는 초장거리 탱커. 맞고 막으면서 모은 사운드를 한 번에 방출
+const soundCmds: Command[] = [
+  { seq: ['A', 'A', 'B'], move: 'boom_triple' },
+  { seq: ['B', 'B'], move: 'howl_swing' },
+  { seq: ['A', 'B', 'C'], move: 'reverb_combo' },
+  { seq: ['d', 'f', 'C'], move: 'bass_wave' },
+  { seq: ['dash', 'C'], move: 'boom_ram' },
+  { seq: ['d', 'u', 'C'], move: 'boom_skyscraper' },
+  { seq: ['b', 'f', 'B'], move: 'boom_windmill' },
+  { seq: ['bs', 'C'], move: 'boom_snipe' },
+  { seq: ['d', 'd', 'D'], move: 'woofer_quake' },
+  { seq: ['d', 'C'], move: 'pole_dive', air: true },
+]
 export const SOUND: CharacterData = {
-  ...DP, atk: 0.76, assist: 'special1', id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'), trait: 'rec',
-  desc: '느리지만 단단한 탱커. 맞고 막을수록 사운드 게이지가 차고, SOUND OVER로 터뜨린다.', stats: { power: 4, speed: 2, reach: 5 },
-  hp: 1060, walkSpeed: 1.45, runSpeed: 3.0, jumpV: 6.1,
-  moves: derive({
-    light: { name: '붐 찌르기', startup: 6, active: 4, recovery: 12, damage: 40, hitbox: { x: 16, y: 26, w: 34, h: 14 } },
-    heavy: { name: '붐 스윙', startup: 15, recovery: 24, damage: 88, hitbox: { x: -6, y: 8, w: 66, h: 40 }, kbX: 4 },
-    jl: { name: '점프 붐 찌르기', damage: 36, hitbox: { x: 10, y: 0, w: 30, h: 22 } }, jh: { name: '점프 붐 내려치기', damage: 74, hitbox: { x: 4, y: -8, w: 44, h: 30 } },
-    super: { name: '동시녹음 풀레벨', voice: '레벨 최대!! 전원 정숙!!', anim: 'super', dash: undefined, damage: 40, hitbox: { x: -20, y: 0, w: 150, h: 60 }, multiHit: { interval: 9, max: 5 }, sfx: 'wave' },
-    jab3: { name: '붐 3단 찌르기', damage: 52, hitbox: { x: 16, y: 22, w: 36, h: 18 } },
-    lowjab: { name: '케이블 툭', damage: 30, hitbox: { x: 10, y: 0, w: 34, h: 12 } },
-    upper: { name: '붐 퍼올리기', voice: '마이크 올립니다!', hitbox: { x: 4, y: 24, w: 34, h: 44 } },
-    zoompunch: { name: '털뭉치 강타', voice: '바람 소리 컷!', dash: 1.8, hitbox: { x: 14, y: 20, w: 40, h: 22 } },
-    spin: { name: '붐 헬리콥터', voice: '360도 수음!', hitbox: { x: -20, y: 10, w: 70, h: 32 } },
-    flash: { name: '피드백 노이즈', voice: '지지직—!' },
-    rush: { name: '음파 난타', voice: '들려? 들리냐고!' },
-    sweep: { name: '케이블 걸기', voice: '선 밟지 마세요!', hitbox: { x: 4, y: 0, w: 46, h: 12 } },
-  }, {
-    // Q: 저음 충격파 (멀리 가는 묵직한 음파)
-    special1: skill('special1', { name: '저음 충격파', voice: '우우우웅—', ...noHit, cd: 280, startup: 18, recovery: 24,
-      projectile: { kind: 'wave', offsetX: 30, startY: 10, vx: 3.8, vy: 0, w: 22, h: 40, life: 80, damage: 52, chip: 12, hitstun: 26, blockstun: 16, kbX: 3 }, sfx: 'wave' }),
-    // W: 노이즈 월 (앞을 소리로 막음: 막을 때마다 게이지 +)
-    special2: fx('special2', '노이즈 월', 'noisewall', 4, 16, { cd: 240, active: 36, voice: '노이즈 차단!', sfx: 'wave' }),
-    // E: SOUND OVER (게이지를 한 번에 방출: 많이 모을수록 넓고 셈)
-    trait: fx('trait', 'SOUND OVER', 'soundover', 12, 22, { cd: 60, voice: 'SOUND… OVER!!', sfx: 'wave' }),
-  }),
+  ...DP, id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'), trait: 'rec',
+  desc: '붐마이크가 여의봉처럼 화면 절반까지 늘어난다. 맞을수록 사운드가 차고, 터뜨리면 화면이 운다.',
+  style: '초장거리 탱커', difficulty: 2, showcase: ['C_n', 'boom_skyscraper', 'D_n'],
+  stats: { power: 4, speed: 2, reach: 5 }, atk: 0.78, assist: 'bass_wave',
+  hp: 1120, walkSpeed: 1.5, runSpeed: 3.1, jumpV: 6.2, airDashes: 0,
+  commands: soundCmds,
+  moves: build({
+    A_n: atk('붐 툭', [5, 3, 10], 32, [14, 26, 50, 12], { vfx: 'pole', anim: 't:thrust:l' }),
+    A_f: atk('붐 찌르기', [7, 4, 14], 38, [20, 26, 96, 12], { vfx: 'pole', anim: 't:thrust:l' }),
+    A_u: atk('붐 세우기', [7, 6, 16], 38, [-6, 40, 24, 96], { kbY: 5, juggle: true, vfx: 'pole', anim: 't:upper:l' }),
+    A_d: atk('케이블 툭', [5, 3, 10], 26, [10, 0, 64, 10], { low: true, vfx: 'pole', anim: 't:sweep:l' }),
+    A_air: atk('공중 붐', [5, 8, 10], 32, [6, 4, 64, 16], { ...air, vfx: 'pole', anim: 't:airswing:l' }),
+    A_aird: atk('붐 내려찍기', [7, 10, 12], 42, [-4, -64, 24, 74], { ...air, vfx: 'pole', anim: 't:airspike:l' }),
+    A_dash: atk('달리며 붐', [5, 6, 12], 36, [16, 24, 80, 12], { dash: 2.5, vfx: 'pole', anim: 't:thrust:l' }),
+    B_n: atk('붐 스윙', [14, 6, 22], 80, [-10, 10, 126, 40], { kbX: 6.5, kbY: 4, wallBounce: true, vfx: 'pole', anim: 't:swing:l', sfx: 'heavy' }),
+    B_f: atk('털뭉치 강타', [12, 6, 22], 76, [30, 22, 136, 18], { kbX: 7, vfx: 'pole', anim: 't:thrust:l' }),
+    B_u: atk('붐 타워', [12, 8, 24], 66, [-10, 50, 30, 176], { kbY: 9, juggle: true, vfx: 'pole', anim: 't:upper:l' }),
+    B_d: atk('붐 바닥 쓸기', [10, 8, 20], 52, [10, 0, 210, 12], { low: true, kbY: 3, vfx: 'pole', anim: 't:sweep:l' }),
+    B_air: atk('공중 붐 휘두르기', [8, 8, 12], 60, [-10, -10, 116, 40], { ...air, vfx: 'pole', anim: 't:airswing:l' }),
+    B_dash: atk('붐 돌진', [8, 12, 18], 66, [20, 22, 116, 16], { dash: 4, kbX: 6, vfx: 'pole', anim: 't:thrust:l' }),
+    // 여의봉: C를 누르고 있으면 늘어남 (최대 화면 절반)
+    C_n: atk('여의봉 찌르기 (모으기)', [10, 6, 20], 44, [20, 26, 90, 14], { hold: { max: 45, reach: 6.6, dmg: 1.1 }, kbX: 5, vfx: 'pole', anim: 't:charge:l', voice: '늘어나라!' }),
+    C_f: atk('붐 장대 점프', [6, 10, 14], 30, [0, 0, 32, 42], { lift: 8, dash: 3.6, anim: 't:vault:l' }),
+    C_u: atk('붐 대공', [10, 6, 20], 58, [-6, 60, 30, 210], { kbY: 7, juggle: true, vfx: 'pole', anim: 't:upper:l' }),
+    C_d: eff('우퍼 장판', 'woofer', [12, 1, 18], { cd: 200, anim: 't:plant:s', sfx: 'wave', voice: '저음 깔고~' }),
+    C_air: shot('공중 저음파', [10, 1, 14], { kind: 'wave', vx: 4.5, vy: -2, w: 22, h: 30, damage: 40 }, { air: true, anim: 't:aim:s', sfx: 'wave' }),
+    D_n: eff('SOUND OVER', 'soundover', [12, 1, 24], { cd: 60, anim: 'trait', sfx: 'wave', voice: 'SOUND… OVER!!' }),
+    D_d: eff('노이즈 월', 'noisewall', [4, 36, 16], { cd: 200, anim: 'special2', sfx: 'wave', voice: '노이즈 차단!' }),
+    D_f: eff('피드백 기둥', 'pillar', [10, 1, 18], { cd: 150, anim: 't:burst:s', sfx: 'wave', voice: '삐이익—!' }),
+    R: atk('동시녹음 풀레벨', [14, 10, 30], 30, [-120, 0, 360, 90], { cost: 100, ult: { total: 300, cine: 160 }, anim: 'super', sfx: 'super', voice: '레벨 최대!! 전원 정숙!!' }),
+    boom_triple: atk('붐 3단 찌르기', [8, 6, 20], 60, [20, 24, 146, 14], { kbX: 6, vfx: 'pole', anim: 't:thrust:l' }),
+    howl_swing: atk('하울링 스윙', [10, 8, 20], 68, [-20, 10, 146, 40], { kbY: 4, vfx: 'pole', anim: 't:swing:l', sfx: 'wave' }),
+    reverb_combo: atk('리버브 콤보', [8, 10, 20], 24, [20, 20, 166, 20], { multiHit: { interval: 4, max: 3 }, vfx: 'pole', anim: 't:flurry:l' }),
+    bass_wave: shot('저음 충격파', [16, 1, 22], { kind: 'wave', offsetX: 30, startY: 10, vx: 4.6, w: 24, h: 42, life: 120, damage: 54, kbX: 3 }, { cd: 150, anim: 't:aim:s', sfx: 'wave', voice: '우우우웅—' }),
+    boom_ram: atk('붐 돌진 찌르기', [8, 12, 20], 66, [20, 24, 266, 14], { dash: 4, kbX: 7, wallBounce: true, vfx: 'pole', anim: 't:thrust:l', voice: '마이크 들어간다!' }),
+    boom_skyscraper: atk('붐 마천루', [10, 10, 26], 74, [-10, 40, 30, 270], { kbY: 11, juggle: true, finisher: true, vfx: 'pole', anim: 't:upper:l', voice: '하늘까지 수음!' }),
+    boom_windmill: atk('붐 풍차', [10, 20, 22], 30, [-126, 10, 252, 40], { multiHit: { interval: 5, max: 4 }, lastHitKbY: 5, vfx: 'pole', anim: 't:spin:l', voice: '돌려라!' }),
+    boom_snipe: atk('원거리 붐 견제', [8, 4, 18], 42, [40, 26, 250, 12], { vfx: 'pole', anim: 't:thrust:l' }),
+    woofer_quake: atk('우퍼 대지진', [14, 8, 24], 48, [10, 0, 310, 14], { cd: 300, low: true, kbY: 3.5, vfx: 'quake', anim: 't:plant:l', sfx: 'wave', voice: '쿵—쿵—쿵!' }),
+    pole_dive: atk('장대 다이브', [6, 16, 16], 68, [-20, -20, 62, 40], { ...air, lift: -8, groundBounce: true, anim: 't:dive:l' }),
+  }, soundCmds),
 }
 
-// ─────────── 조명감독: 빛을 쌓아 스턴 → 콤보 (스턴 콤보형) ───────────
+// ════════════════════════════════════════════ 조명감독 ════════════════════════════════════════════
+// 빛을 다루는 마법사. 레이저·반사판·암전 블링크로 노출을 쌓아 기절시키고 콤보
+const gafferCmds: Command[] = [
+  { seq: ['A', 'A', 'C'], move: 'highlight3' },
+  { seq: ['B', 'B'], move: 'stand_windmill' },
+  { seq: ['A', 'B', 'C'], move: 'expose_over' },
+  { seq: ['d', 'f', 'C'], move: 'keylight_cannon' },
+  { seq: ['dash', 'C'], move: 'light_rush' },
+  { seq: ['d', 'u', 'C'], move: 'toplight_fall' },
+  { seq: ['bs', 'D'], move: 'blackout_back' },
+  { seq: ['b', 'f', 'D'], move: 'backlight_blink' },
+  { seq: ['d', 'd', 'D'], move: 'gel_filter' },
+  { seq: ['d', 'C'], move: 'downlight_drop', air: true },
+]
 export const GAFFER: CharacterData = {
-  ...DP, atk: 0.95, assist: 'special1', id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
-  desc: '빛을 비출수록 상대 노출이 쌓이고, 가득 차면 눈부셔 기절. 그 틈에 콤보를 퍼붓는다.', stats: { power: 4, speed: 3, reach: 3 },
-  hp: 1000, walkSpeed: 1.6, runSpeed: 3.2, jumpV: 6.2,
-  moves: derive({
-    light: { name: 'LED 패널 치기', startup: 5, recovery: 10, damage: 42, expose: 6 },
-    heavy: { name: 'C스탠드 휘두르기', startup: 12, recovery: 20, damage: 94, kbX: 4, hitbox: { x: 6, y: 14, w: 44, h: 30 } },
-    jl: { name: '점프 LED', damage: 36, expose: 6 }, jh: { name: '점프 스탠드 찍기', damage: 72 },
-    super: { name: '풀 파워!!', voice: '18K 풀 파워!!!', ...noHit, active: 1, recovery: 30, dash: undefined, multiHit: undefined, finisher: true,
-      projectile: { kind: 'beam', offsetX: 46, startY: 1, vx: 2.6, vy: 0, w: 24, h: 70, life: 80, damage: 200, chip: 30, hitstun: 40, blockstun: 24, kbX: 3, kbY: 6.5, expose: 100 }, sfx: 'super' },
-    jab3: { name: '하이빔 3타', damage: 50, expose: 10 },
-    lowjab: { name: '발밑 조명', damage: 30, expose: 6 },
-    upper: { name: '스탠드 어퍼', voice: '라이트 업!', damage: 76 },
-    zoompunch: { name: '백열등 강타', voice: '뜨겁지?', damage: 100, expose: 12 },
-    spin: { name: '스탠드 회전', voice: '돌려!', damage: 50 },
-    flash: { name: 'HMI 섬광', voice: '눈 감아!!', expose: 34 },
-    rush: { name: '전압 러시', voice: '과부하다아!', damage: 30 },
-    sweep: { name: '바닥 구르기', voice: '발밑 조심!', damage: 66 },
-  }, {
-    // Q: 키라이트 (정면 빛줄기 3연타: 노출 +)
-    special1: skill('special1', { name: '키라이트', voice: '키라이트 온!', anim: 'flash', cd: 150, startup: 9, active: 15, recovery: 16, damage: 16, chip: 2, hitstun: 16, blockstun: 10, kbX: 0.6,
-      hitbox: { x: 10, y: 18, w: 82, h: 18 }, multiHit: { interval: 5, max: 3 }, expose: 13, meterGain: 3, sfx: 'shutter' }),
-    // W: 백라이트 (상대 뒤에서 빛을 쏴 내 쪽으로 끌어옴)
-    special2: fx('special2', '백라이트', 'backlight', 12, 16, { cd: 240, voice: '역광이다!', anim: 'special2' }),
-    // E: 팔로우 스폿 (4초 동안 상대를 따라다니며 노출)
-    trait: fx('trait', '팔로우 스폿', 'followspot', 14, 10, { cd: 540, voice: '스폿 따라가!' }),
-  }),
+  ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
+  desc: '빛줄기로 노출을 쌓고, 조명을 꺼 순간이동한다. 노출이 차면 상대는 눈부셔 쓰러진다.',
+  style: '빛 마법사 · 스턴 콤보', difficulty: 2, showcase: ['C_n', 'D_n', 'keylight_cannon'],
+  stats: { power: 3, speed: 3, reach: 4 }, atk: 1.27, assist: 'C_n',
+  hp: 1000, walkSpeed: 1.7, runSpeed: 3.4, jumpV: 6.4, airDashes: 1,
+  commands: gafferCmds,
+  moves: build({
+    A_n: atk('LED 잽', [4, 3, 9], 32, [8, 26, 28, 16], { expose: 5, anim: 't:jab:s' }),
+    A_f: atk('하이빔 찌르기', [6, 4, 12], 36, [10, 22, 52, 14], { expose: 6, anim: 't:thrust:s' }),
+    A_u: atk('업라이트', [5, 4, 14], 36, [0, 40, 32, 36], { kbY: 4.5, juggle: true, expose: 6, anim: 't:upper:s' }),
+    A_d: atk('발밑 조명', [5, 3, 10], 26, [8, 0, 32, 14], { low: true, expose: 5, anim: 't:crouchpoke:s' }),
+    A_air: atk('공중 LED', [4, 8, 8], 30, [4, 0, 30, 28], { ...air, expose: 5, anim: 't:airswing:s' }),
+    A_aird: atk('다운라이트', [6, 8, 10], 38, [-6, -12, 36, 30], { ...air, expose: 8, anim: 't:airspike:s' }),
+    B_n: atk('C스탠드 스윙', [12, 5, 20], 78, [4, 14, 72, 32], { kbX: 6.5, kbY: 3.5, wallBounce: true, anim: 't:swing:l', sfx: 'heavy' }),
+    B_f: atk('스탠드 찌르기', [12, 5, 20], 68, [10, 22, 94, 14], { kbX: 5, anim: 't:thrust:l' }),
+    B_u: atk('스탠드 대공', [10, 6, 20], 58, [-10, 40, 42, 64], { kbY: 6, juggle: true, anim: 't:upper:l' }),
+    B_d: atk('케이블 스윕', [9, 6, 18], 50, [6, 0, 74, 12], { low: true, kbY: 2.5, anim: 't:sweep:l' }),
+    B_air: atk('공중 스탠드', [7, 8, 12], 58, [0, -4, 54, 34], { ...air, anim: 't:airswing:l' }),
+    B_dash: atk('라이트 대시', [6, 10, 18], 64, [6, 14, 40, 30], { dash: 5, kbX: 5.5, afterimage: true, expose: 8, anim: 't:dashstrike:l' }),
+    C_n: atk('레이저 빛줄기', [10, 12, 18], 14, [20, 26, 430, 8], { effect: 'reflect', multiHit: { interval: 4, max: 3 }, expose: 10, cd: 60, vfx: 'laser', anim: 't:aim:s', sfx: 'shutter', voice: '키라이트 온!' }),
+    C_f: atk('플래시', [6, 4, 16], 24, [-4, 10, 74, 52], { hitstun: 40, expose: 32, cd: 120, anim: 't:burst:s', sfx: 'shutter', voice: '눈 감아!!' }),
+    C_u: eff('빛기둥', 'toplight', [12, 1, 18], { cd: 110, anim: 't:point:s' }),
+    C_d: eff('바닥 조명', 'floorlight', [10, 1, 16], { cd: 240, anim: 't:plant:l' }),
+    C_air: atk('공중 빛줄기', [8, 10, 14], 14, [20, 0, 270, 10], { air: true, multiHit: { interval: 5, max: 2 }, expose: 8, vfx: 'laser', anim: 't:aim:s' }),
+    D_n: eff('암전 블링크', 'blinkFwd', [8, 1, 10], { cd: 90, anim: 't:blink:n', sfx: 'dash', voice: '암전!' }),
+    D_b: eff('암전 후퇴', 'blinkBack', [6, 1, 10], { cd: 90, anim: 't:blink:n', sfx: 'dash' }),
+    D_d: eff('반사판 설치', 'reflector', [10, 1, 14], { cd: 120, anim: 't:plant:l', voice: '반사판!' }),
+    D_u: eff('팔로우 스폿', 'spot', [12, 1, 10], { cd: 480, anim: 'trait', voice: '스폿 따라가!' }),
+    R: atk('18K 풀 파워', [16, 10, 30], 30, [10, 0, 600, 80], { cost: 100, ult: { total: 300, cine: 160 }, expose: 100, vfx: 'laser', anim: 'super', sfx: 'super', voice: '18K 풀 파워!!!' }),
+    highlight3: atk('하이라이트 3연광', [6, 10, 16], 18, [10, 14, 92, 30], { multiHit: { interval: 4, max: 3 }, expose: 10, vfx: 'laser', anim: 't:burst:s' }),
+    stand_windmill: atk('스탠드 풍차', [6, 14, 18], 42, [-24, 10, 76, 34], { multiHit: { interval: 7, max: 2 }, lastHitKbY: 4, anim: 't:spin:l' }),
+    expose_over: atk('노출 오버', [8, 6, 20], 38, [-10, 10, 94, 52], { expose: 26, kbY: 5, juggle: true, anim: 't:burst:s', sfx: 'shutter' }),
+    keylight_cannon: atk('키라이트 대포', [14, 10, 22], 24, [20, 18, 540, 22], { effect: 'reflect', cd: 150, multiHit: { interval: 3, max: 3 }, expose: 12, vfx: 'laser', anim: 't:aim:l', sfx: 'shutter', voice: '빛이여!' }),
+    light_rush: atk('빛의 돌진', [6, 16, 18], 18, [2, 14, 32, 32], { dash: 5, multiHit: { interval: 4, max: 4 }, expose: 8, afterimage: true, anim: 't:flurry:s' }),
+    toplight_fall: eff('탑라이트 폭포', 'toplight', [10, 1, 16], { cd: 200, anim: 't:point:s', voice: '위를 봐!' }),
+    blackout_back: eff('암전 백스텝', 'blinkBack', [4, 1, 8], { cd: 60, anim: 't:blink:n' }),
+    backlight_blink: atk('역광 블링크', [10, 6, 18], 48, [6, 14, 38, 36], { effect: 'blinkBehind', cd: 180, kbX: 5, kbY: 3, expose: 14, anim: 't:dashstrike:s', voice: '뒤를 봐!' }),
+    gel_filter: eff('젤라틴 필터', 'gel', [10, 1, 14], { cd: 420, anim: 'trait', voice: '앰버 젤!' }),
+    downlight_drop: atk('다운라이트 낙하', [8, 16, 14], 40, [-20, -20, 62, 40], { ...air, lift: -7, expose: 20, anim: 't:dive:l' }),
+  }, gafferCmds),
 }
 
-// ─────────── 미술감독: 구조물로 전장을 바꿈 (지형 생성형) ───────────
+// ════════════════════════════════════════════ 미술감독 ════════════════════════════════════════════
+// 맵을 직접 짓는 건축가. 발판·벽·소파를 지어 무대를 만들고, 지은 만큼 강해진다
+const artCmds: Command[] = [
+  { seq: ['A', 'A', 'B'], move: 'nail3' },
+  { seq: ['B', 'B'], move: 'roller_spin' },
+  { seq: ['A', 'B', 'C'], move: 'paint_bomb' },
+  { seq: ['d', 'f', 'C'], move: 'stair_set' },
+  { seq: ['dash', 'B'], move: 'roller_dash' },
+  { seq: ['d', 'u', 'B'], move: 'hammer_super_upper' },
+  { seq: ['bs', 'C'], move: 'barricade' },
+  { seq: ['b', 'f', 'C'], move: 'plywood_throw' },
+  { seq: ['d', 'd', 'B'], move: 'set_quake' },
+  { seq: ['d', 'B'], move: 'nail_dive', air: true },
+]
 export const ART: CharacterData = {
-  ...DP, atk: 1.05, assist: 'trait', id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'), trait: 'wall',
-  desc: '제작 포인트로 애플박스·세트벽·소파를 만들어 전장을 내 무대로. 높은 곳에선 더 세다.', stats: { power: 4, speed: 3, reach: 3 },
-  hp: 1040,
-  moves: derive({
-    light: { name: '망치 콩!', startup: 4, damage: 42, sfx: 'light' },
-    heavy: { name: '롤러 휘두르기', startup: 11, damage: 88 },
-    jl: { name: '점프 망치', damage: 38 }, jh: { name: '점프 롤러 찍기', damage: 74 },
-    super: { name: '세트 체인지!!', voice: '전부 철거하고 새로 짓는다!!', effect: 'setchange', dash: 3.2, damage: 46, multiHit: { interval: 7, max: 6 } },
-    jab3: { name: '못 박기 3타', damage: 52 },
-    lowjab: { name: '정강이 망치', damage: 30 },
-    upper: { name: '망치 점프 어퍼', voice: '천장까지!' },
-    zoompunch: { name: '대못 박기', voice: '쾅!!', damage: 102 },
-    spin: { name: '롤러 회전', voice: '한 번 더 칠한다!' },
-    flash: { name: '페인트 폭탄', voice: '색 좀 입혀줄게!' },
-    rush: { name: '연속 망치질', voice: '뚝딱뚝딱뚝딱!' },
-    sweep: { name: '바닥 칠하기', voice: '바닥 마르기 전이야!' },
-  }, {
-    // Q: 애플박스 (발판: 올라서면 공격력 +15%, 하단기를 피함) — 제작 포인트 25
-    special1: fx('special1', '애플박스', 'applebox', 12, 12, { cd: 60, voice: '애플박스!', anim: 'trait' }),
-    // W: 페이크 월 (투사체·이동 차단, 벽꽝) — 제작 포인트 35
-    special2: fx('special2', '페이크 월', 'wall', 14, 12, { cd: 90, voice: '벽 세웁니다!', anim: 'trait' }),
-    // E: 소파 드롭 (상대 머리 위로 소파 낙하) — 제작 포인트 40
-    trait: fx('trait', '소파 드롭', 'sofa', 12, 16, { cd: 120, voice: '소파 들어갑니다~!', anim: 'special2' }),
-  }),
+  ...DP, id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'), trait: 'wall',
+  desc: '무대를 직접 짓는다. 공중에도 발판을 올리고, 벽으로 막고, 다 지으면 부숴서 날린다.',
+  style: '건축·지형형 운영', difficulty: 3, showcase: ['C_u', 'C_f', 'D_n'],
+  stats: { power: 4, speed: 3, reach: 3 }, atk: 1.92, assist: 'C_d',
+  hp: 1040, airDashes: 1,
+  commands: artCmds,
+  moves: build({
+    A_n: atk('망치 콩!', [4, 3, 9], 34, [8, 26, 28, 16], { anim: 't:jab:s', sfx: 'light' }),
+    A_f: atk('못 박기', [6, 4, 12], 40, [10, 22, 42, 16], { anim: 't:overhead:s' }),
+    A_u: atk('망치 어퍼', [6, 4, 14], 38, [0, 40, 32, 36], { kbY: 5, juggle: true, anim: 't:upper:s' }),
+    A_d: atk('정강이 망치', [5, 3, 10], 28, [8, 0, 32, 14], { low: true, anim: 't:crouchpoke:s' }),
+    A_air: atk('공중 망치', [4, 8, 8], 32, [4, 0, 30, 28], { ...air, anim: 't:airswing:s' }),
+    A_aird: atk('망치 내려찍기', [6, 10, 10], 42, [-6, -12, 36, 30], { ...air, groundBounce: true, anim: 't:airspike:s' }),
+    B_n: atk('롤러 스윙', [12, 5, 20], 80, [4, 14, 70, 32], { kbX: 6.5, kbY: 3.5, wallBounce: true, anim: 't:swing:l', sfx: 'heavy' }),
+    B_f: atk('롤러 밀기', [12, 8, 20], 66, [10, 10, 54, 30], { dash: 3, kbX: 6, anim: 't:thrust:l' }),
+    B_u: atk('롤러 대공', [10, 6, 20], 58, [-10, 40, 42, 64], { kbY: 6, juggle: true, anim: 't:upper:l' }),
+    B_d: atk('바닥 칠하기', [9, 8, 18], 50, [6, 0, 76, 12], { low: true, debuff: { slow: 60 }, anim: 't:sweep:l' }),
+    B_air: atk('공중 롤러', [7, 8, 12], 62, [0, -4, 54, 34], { ...air, anim: 't:airswing:l' }),
+    B_dash: atk('망치 돌진', [6, 10, 18], 66, [6, 14, 40, 30], { dash: 5, kbX: 6, anim: 't:dashstrike:s' }),
+    C_n: eff('애플박스', 'applebox', [10, 1, 12], { cd: 30, anim: 'trait', voice: '애플박스!' }),
+    C_u: eff('공중 발판', 'platform', [10, 1, 12], { cd: 30, anim: 't:point:s', voice: '발판 올려!' }),
+    C_f: eff('페이크 월', 'wall', [12, 1, 12], { cd: 60, anim: 'trait', voice: '벽 세웁니다!' }),
+    C_d: eff('소파 드롭', 'sofa', [12, 1, 16], { cd: 150, anim: 't:throw:n', voice: '소파 들어갑니다~!' }),
+    C_air: eff('공중 발판 생성', 'airPlatform', [6, 1, 10], { cd: 40, air: true, anim: 't:pose:s' }),
+    D_n: eff('세트 폭파', 'setBlast', [10, 1, 18], { cd: 120, anim: 't:burst:s', voice: '날려 버려!' }),
+    D_f: eff('세트벽 밀기', 'wallPush', [8, 1, 14], { cd: 90, anim: 't:thrust:s', voice: '밀어!' }),
+    D_d: eff('비계 설치', 'scaffold', [14, 1, 16], { cd: 240, anim: 'trait', voice: '비계 올려!' }),
+    D_u: eff('세트 붕괴', 'collapse', [10, 1, 18], { cd: 200, anim: 't:point:s', voice: '무너져라!' }),
+    R: atk('세트 체인지', [14, 10, 30], 30, [-40, 0, 230, 100], { cost: 100, effect: 'setchange', ult: { total: 300, cine: 170 }, anim: 't:overhead:l', sfx: 'super', voice: '전부 철거하고 새로 짓는다!!' }),
+    nail3: atk('못질 3연타', [6, 10, 18], 28, [8, 20, 34, 24], { multiHit: { interval: 4, max: 3 }, anim: 't:flurry:s' }),
+    roller_spin: atk('롤러 회전', [6, 14, 18], 44, [-24, 10, 74, 34], { multiHit: { interval: 7, max: 2 }, lastHitKbY: 4, anim: 't:spin:l' }),
+    paint_bomb: shot('페인트 폭탄', [10, 1, 18], { kind: 'paint', offsetX: 14, startY: 36, vx: 3.4, vy: 2.6, gy: 0.2, w: 18, h: 16, life: 90, damage: 48, kbY: 2.4, debuff: { slow: 120 } }, { anim: 't:throw:n' }),
+    stair_set: eff('계단 세트', 'stairs', [12, 1, 16], { cd: 120, anim: 'trait', voice: '계단 깔고~' }),
+    roller_dash: atk('롤러 대시', [6, 16, 18], 58, [4, 0, 44, 30], { dash: 5.5, debuff: { slow: 90 }, afterimage: true, anim: 't:dashstrike:l' }),
+    hammer_super_upper: atk('망치 슈퍼 어퍼', [8, 6, 24], 88, [-4, 24, 40, 64], { kbY: 10, juggle: true, lift: 4, finisher: true, anim: 't:upper:s', voice: '천장까지!' }),
+    barricade: eff('바리케이드', 'barricade', [8, 1, 12], { cd: 90, anim: 'trait' }),
+    plywood_throw: shot('합판 날리기', [10, 1, 18], { kind: 'plywood', vx: 6.5, startY: 22, w: 26, h: 18, life: 110, damage: 58, kbX: 5, wallBounce: true }, { cd: 120, anim: 't:throw:n', voice: '합판 간다!' }),
+    set_quake: atk('세트 망치 대지진', [12, 6, 22], 62, [-40, 0, 186, 12], { low: true, kbY: 3, vfx: 'quake', anim: 't:overhead:s', voice: '쿵!!' }),
+    nail_dive: atk('대못 다이브', [8, 16, 14], 76, [-4, -16, 40, 32], { ...air, lift: -8, groundBounce: true, anim: 't:dive:s' }),
+  }, artCmds),
 }
 
-// ─────────── 분장실장: 분장막으로 버티다 한 번에 쏟아냄 (자원 관리 카운터형) ───────────
+// ════════════════════════════════════════════ 분장실장 ════════════════════════════════════════════
+// 분장막으로 버티며 상처·노인·파우더 분장을 걸고, 크리처로 변신하면 기술 세트가 통째로 바뀐다
+const makeupCmds: Command[] = [
+  { seq: ['A', 'A', 'B'], move: 'concealer3' },
+  { seq: ['B', 'B'], move: 'brush_spin' },
+  { seq: ['A', 'B', 'C'], move: 'makeup_rush' },
+  { seq: ['d', 'f', 'C'], move: 'sfx_barrage' },
+  { seq: ['dash', 'A'], move: 'puff_sprint' },
+  { seq: ['d', 'u', 'B'], move: 'highkick_upper' },
+  { seq: ['bs', 'C'], move: 'fixer_mist' },
+  { seq: ['b', 'f', 'C'], move: 'curling_whip' },
+  { seq: ['d', 'd', 'D'], move: 'aging_curse' },
+  { seq: ['d', 'B'], move: 'brush_dive', air: true },
+]
 export const MAKEUP: CharacterData = {
-  ...DP, atk: 0.86, assist: 'special2', id: 'makeup', name: '분장실장', nameEn: 'MAKEUP', color: '#ec4899', dept: '분장팀', titles: TITLES('분장실장'), trait: 'makeup',
-  desc: '분장막이 피해를 흡수한다. 지킬지, 클렌징으로 한 번에 터뜨릴지 고르는 빠른 서바이버.', stats: { power: 2, speed: 5, reach: 2 },
-  hp: 920, walkSpeed: 2.05, runSpeed: 4.1, jumpV: 6.8, airSpeed: 2.3,
-  moves: derive({
-    light: { name: '퍼프 톡', startup: 3, active: 2, recovery: 7, damage: 31, hitstun: 15 },
-    heavy: { name: '브러시 휘두르기', startup: 9, recovery: 16, damage: 70 },
-    jl: { name: '점프 퍼프', damage: 30 }, jh: { name: '점프 브러시', damage: 62 },
-    super: { name: '풀메이크업!!', voice: '완벽하게 만들어 줄게!!', effect: 'fullmakeup', dash: 4.2, damage: 28, multiHit: { interval: 5, max: 8 } },
-    jab3: { name: '컨실러 톡톡톡', damage: 44 },
-    lowjab: { name: '발끝 파우더', damage: 26 },
-    upper: { name: '하이킥 어퍼', voice: '턱선 살리고~', damage: 64 },
-    zoompunch: { name: '컬링 스트라이크', voice: '볼륨 업!', damage: 86 },
-    spin: { name: '브러시 회전', voice: '쉐딩 쉐딩~', damage: 40 },
-    flash: { name: '반짝 펄', voice: '하이라이터 반짝!' },
-    rush: { name: '메이크업 러시', voice: '톡톡톡톡톡!', damage: 24, multiHit: { interval: 5, max: 6 } },
-    sweep: { name: '쓸어담기', voice: '정리 끝~', damage: 52 },
-  }, {
-    // Q: 베이스 (분장막 +35)
-    special1: fx('special1', '베이스', 'base', 10, 12, { cd: 240, voice: '베이스 깔고~', anim: 'flash' }),
-    // W: 파우더 블라인드 (맞은 상대는 판정이 작아짐)
-    special2: skill('special2', { name: '파우더 블라인드', voice: '파우더~ 팡!', ...noHit, cd: 270, startup: 10, recovery: 18,
-      projectile: { kind: 'spray', offsetX: 20, startY: 18, vx: 2.6, vy: 0, w: 26, h: 30, life: 80, damage: 30, chip: 4, hitstun: 30, blockstun: 12, kbX: 0.8, blind: 180 }, sfx: 'spray' }),
-    // E: 클렌징 (분장막을 전부 써서 주변 폭발, 가드 불가)
-    trait: fx('trait', '클렌징', 'cleanse', 10, 18, { cd: 120, voice: '싹— 지워!!' }),
-  }),
+  ...DP, id: 'makeup', name: '분장실장', nameEn: 'MAKEUP', color: '#ec4899', dept: '분장팀', titles: TITLES('분장실장'), trait: 'makeup',
+  desc: '분장막으로 버티며 상처·노인 분장을 건다. 자기 얼굴에 특수분장하면 크리처로 변신.',
+  style: '상태이상·변신형', difficulty: 2, showcase: ['C_n', 'D_n', 'B_n~creature'],
+  stats: { power: 3, speed: 5, reach: 3 }, atk: 1.05, assist: 'C_f',
+  hp: 930, walkSpeed: 2.1, runSpeed: 4.2, jumpV: 6.9, airSpeed: 2.4, airDashes: 2,
+  commands: makeupCmds,
+  moves: build({
+    A_n: atk('퍼프 톡', [3, 2, 7], 28, [8, 26, 26, 16], { anim: 't:jab:l' }),
+    A_f: atk('브러시 찌르기', [5, 4, 10], 32, [10, 22, 52, 14], { anim: 't:thrust:l' }),
+    A_u: atk('브러시 올려', [5, 4, 12], 32, [0, 40, 32, 36], { kbY: 4, juggle: true, anim: 't:upper:l' }),
+    A_d: atk('발끝 파우더', [4, 3, 9], 22, [8, 0, 32, 14], { low: true, debuff: { blind: 60 }, anim: 't:crouchpoke:s' }),
+    A_air: atk('공중 퍼프', [3, 8, 8], 26, [4, 0, 30, 28], { ...air, anim: 't:airswing:l' }),
+    A_aird: atk('공중 브러시 찍기', [5, 8, 10], 32, [-6, -12, 36, 30], { ...air, anim: 't:airspike:l' }),
+    B_n: atk('브러시 스윙', [9, 5, 16], 64, [4, 14, 62, 32], { kbX: 5, kbY: 3, anim: 't:swing:l', sfx: 'heavy' }),
+    B_f: atk('고데기 찌르기', [9, 5, 16], 56, [10, 22, 74, 14], { debuff: { bleed: 120 }, anim: 't:thrust:l' }),
+    B_u: atk('하이킥', [7, 6, 18], 54, [-4, 36, 36, 46], { kbY: 6, juggle: true, anim: 't:kick:n' }),
+    B_d: atk('쓸어담기', [7, 6, 16], 44, [6, 0, 60, 12], { low: true, kbY: 2.5, anim: 't:sweep:l' }),
+    B_air: atk('공중 브러시', [6, 8, 10], 52, [0, -4, 50, 34], { ...air, anim: 't:airswing:l' }),
+    B_dash: atk('퍼프 대시', [5, 10, 16], 56, [6, 14, 38, 30], { dash: 5, kbX: 5, afterimage: true, anim: 't:dashstrike:l' }),
+    C_n: shot('상처분장 브러시', [8, 1, 16], { kind: 'brush', vx: 6, life: 70, damage: 32, debuff: { bleed: 240 } }, { cd: 60, anim: 't:throw:n', voice: '상처 하나 그려 줄게~' }),
+    C_f: atk('노인분장 스프레이', [8, 10, 16], 12, [10, 10, 94, 40], { multiHit: { interval: 4, max: 3 }, debuff: { slow: 180 }, cd: 150, vfx: 'cone', anim: 't:aim:s', sfx: 'spray', voice: '주름 들어갑니다~' }),
+    C_d: shot('파우더 블라인드', [10, 1, 18], { kind: 'spray', offsetX: 20, startY: 18, vx: 2.6, w: 26, h: 30, life: 80, damage: 26, debuff: { blind: 180 } }, { cd: 120, anim: 'special2', sfx: 'spray' }),
+    C_u: atk('반짝 펄', [6, 4, 16], 28, [-10, 40, 62, 62], { kbY: 5, juggle: true, anim: 't:burst:s', sfx: 'shutter' }),
+    C_air: shot('공중 파우더', [8, 1, 14], { kind: 'spray', vx: 2.2, vy: -2, w: 24, h: 26, life: 60, damage: 22, debuff: { blind: 120 } }, { air: true, anim: 't:throw:n', sfx: 'spray' }),
+    D_n: eff('크리처 변신', 'transform', [14, 1, 16], { cd: 600, anim: 'trait', voice: '특수분장… 변신!' }),
+    D_d: eff('베이스', 'base', [10, 1, 12], { cd: 240, anim: 'flash' }),
+    D_f: eff('클렌징', 'cleanse', [10, 1, 18], { cd: 120, anim: 't:burst:s', voice: '싹— 지워!!' }),
+    // 크리처 모드: 길고 무거운 손톱·촉수
+    'A_n~creature': atk('크리처 할퀴기', [4, 4, 10], 38, [6, 14, 48, 36], { vfx: 'claw', anim: 't:swing:n' }),
+    'A_f~creature': atk('할퀴며 돌진', [6, 8, 14], 46, [6, 14, 40, 36], { dash: 5, vfx: 'claw', anim: 't:dashstrike:n' }),
+    'B_n~creature': atk('크리처 강타', [10, 6, 18], 94, [4, 10, 84, 42], { kbX: 7, kbY: 4, wallBounce: true, vfx: 'claw', anim: 't:overhead:n', sfx: 'heavy' }),
+    'B_f~creature': atk('촉수 채찍', [10, 8, 18], 66, [10, 20, 160, 14], { vfx: 'whip', anim: 't:thrust:n' }),
+    'C_n~creature': atk('크리처 포효', [12, 10, 20], 36, [-30, 0, 190, 72], { kbX: 8, wallBounce: true, vfx: 'cone', anim: 't:shout:n', sfx: 'shout', voice: '크와아아앙!!' }),
+    R: atk('풀메이크업', [12, 26, 30], 24, [0, 8, 64, 44], { cost: 100, effect: 'fullmakeup', dash: 5, ult: { total: 300, cine: 170 }, afterimage: true, anim: 't:flurry:l', sfx: 'super', voice: '완벽하게 만들어 줄게!!' }),
+    concealer3: atk('컨실러 3연타', [5, 10, 16], 20, [8, 20, 34, 24], { multiHit: { interval: 4, max: 3 }, anim: 't:flurry:l' }),
+    brush_spin: atk('브러시 회전', [5, 14, 16], 38, [-24, 10, 72, 34], { multiHit: { interval: 7, max: 2 }, lastHitKbY: 4, anim: 't:spin:l' }),
+    makeup_rush: atk('메이크업 러시', [6, 24, 16], 16, [2, 14, 32, 32], { dash: 3, multiHit: { interval: 5, max: 5 }, lastHitKbY: 5, anim: 't:flurry:l', voice: '톡톡톡톡톡!' }),
+    sfx_barrage: atk('특수분장 연타', [6, 20, 16], 16, [2, 14, 34, 32], { dash: 2.5, multiHit: { interval: 5, max: 4 }, debuff: { bleed: 180, slow: 120 }, anim: 't:flurry:l', voice: '상처! 주름! 분칠!' }),
+    puff_sprint: atk('퍼프 질주', [4, 16, 14], 13, [2, 14, 30, 32], { dash: 5, multiHit: { interval: 4, max: 4 }, afterimage: true, anim: 't:flurry:l' }),
+    highkick_upper: atk('하이킥 어퍼', [7, 6, 22], 68, [-4, 24, 38, 60], { kbY: 9, juggle: true, lift: 4, finisher: true, anim: 't:kick:n', voice: '턱선 살리고~' }),
+    fixer_mist: eff('픽서 미스트', 'fixer', [8, 1, 14], { cd: 240, anim: 't:aim:s', sfx: 'spray' }),
+    curling_whip: atk('고데기 채찍', [10, 8, 18], 56, [10, 20, 186, 12], { debuff: { bleed: 120 }, vfx: 'whip', anim: 't:thrust:l', voice: '컬 들어갑니다!' }),
+    aging_curse: eff('노화 저주', 'curse', [12, 1, 18], { cd: 420, anim: 't:point:s', voice: '세월을 드리지~' }),
+    brush_dive: atk('브러시 다이브', [7, 14, 12], 58, [-4, -16, 40, 32], { ...air, lift: -8, anim: 't:dive:l' }),
+  }, makeupCmds),
 }
 
-// ─────────── 배우: 상대 기술을 보고 따라 함 (카피형) ───────────
+// ════════════════════════════════════════════ 배우 ════════════════════════════════════════════
+// 상대 기술·커맨드를 보고 복사, 배역(액션·사극·호러)마다 기본기가 바뀐다
+const actorCmds: Command[] = [
+  { seq: ['A', 'A', 'B'], move: 'duel3' },
+  { seq: ['B', 'B'], move: 'spin_slash' },
+  { seq: ['A', 'B', 'C'], move: 'ranmu' },
+  { seq: ['d', 'f', 'A'], move: 'wire_flykick' },
+  { seq: ['dash', 'C'], move: 'dash_thrust' },
+  { seq: ['d', 'u', 'B'], move: 'rising_slash' },
+  { seq: ['bs', 'D'], move: 'stunt_counter' },
+  { seq: ['b', 'f', 'C'], move: 'line_bomb' },
+  { seq: ['d', 'd', 'C'], move: 'crying_act' },
+  { seq: ['d', 'B'], move: 'ukemi_drop', air: true },
+]
 export const ACTOR: CharacterData = {
-  ...DP, atk: 1.1, assist: 'special1', id: 'actor', name: '배우', nameEn: 'ACTOR', color: '#14b8a6', dept: '연기팀', titles: ['단역', '조연', '주연', '톱스타', '명배우'], trait: 'copy',
-  desc: '상대 스킬을 두 번 보면 따라 한다(Q·W 칸). 즉흥 연기로 바로 베끼고, 필살은 상대 필살을 흉내.', stats: { power: 3, speed: 4, reach: 3 },
-  hp: 1010, walkSpeed: 1.85, runSpeed: 3.7, jumpV: 6.6,
-  moves: derive({
-    light: { name: '소품 칼 찌르기', startup: 4, damage: 42 },
-    heavy: { name: '소품 칼 베기', startup: 10, damage: 90, hitbox: { x: 4, y: 14, w: 44, h: 30 } },
-    jl: { name: '점프 찌르기', damage: 36 }, jh: { name: '점프 내려베기', damage: 70 },
-    super: { name: '명연기 (상대 필살 따라하기)', voice: '이 장면… 내가 더 잘해!' },
-    jab3: { name: '결투 3연격', damage: 50 },
-    lowjab: { name: '발등 찍기', damage: 28 },
-    upper: { name: '칼 올려베기', voice: '클라이맥스!' },
-    zoompunch: { name: '돌진 찌르기', voice: '액션!' },
-    spin: { name: '회전 베기', voice: '롱테이크로 간다!' },
-    flash: { name: '플래시 포즈', voice: '찍어 주세요~' },
-    rush: { name: '난무', voice: '이건 애드리브!' },
-    sweep: { name: '구르며 베기', voice: '대역 없이!' },
-  }, {
-    // Q·W 기본: 따라 하기 전까지 쓰는 연기 기술. 상대 스킬을 두 번 보면 이 자리에 복사됨
-    special1: skill('special1', { name: '마임 펀치', voice: '보이지 않는 주먹!', cd: 150, startup: 7, active: 10, recovery: 16, damage: 64, hitstun: 22, kbX: 3.4, hitbox: { x: 4, y: 18, w: 28, h: 24 }, dash: 3.6, afterimage: true, sfx: 'dash' }),
-    special2: fx('special2', '스턴트 구르기', 'roll', 2, 14, { cd: 150, active: 16, voice: '대역 없이 간다!', dash: 3.6 }),
-    // E: 즉흥 연기 (상대가 방금 쓴 스킬을 바로 따라 함)
-    trait: fx('trait', '즉흥 연기', 'improv', 8, 12, { cd: 600, voice: '방금 그거… 나도 할 수 있어!' }),
-  }),
+  ...DP, id: 'actor', name: '배우', nameEn: 'ACTOR', color: '#14b8a6', dept: '연기팀', titles: ['단역', '조연', '주연', '톱스타', '명배우'], trait: 'copy',
+  desc: '상대 기술과 커맨드를 두 번 보면 따라 한다. 배역을 바꾸면 기본기가 통째로 바뀐다.',
+  style: '카피·배역 전환형', difficulty: 3, showcase: ['B_n', 'B_n~sageuk', 'D_n'],
+  stats: { power: 3, speed: 4, reach: 3 }, atk: 1.71, assist: 'B_f',
+  hp: 990, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.8, airDashes: 1,
+  commands: actorCmds,
+  moves: build({
+    A_n: atk('액션 잽', [4, 3, 9], 32, [8, 26, 28, 16], { anim: 't:kick:n' }),
+    A_f: atk('앞차기', [6, 4, 12], 38, [10, 18, 40, 20], { anim: 't:kick:n' }),
+    A_u: atk('올려차기', [5, 4, 14], 38, [0, 40, 32, 36], { kbY: 4.5, juggle: true, anim: 't:kick:n' }),
+    A_d: atk('다리 걸기', [5, 3, 10], 26, [8, 0, 32, 14], { low: true, anim: 't:crouchpoke:n' }),
+    A_air: atk('공중 킥', [4, 8, 8], 32, [4, 0, 30, 28], { ...air, anim: 't:airkick:n' }),
+    A_aird: atk('내려차기', [6, 10, 10], 42, [-6, -12, 36, 30], { ...air, groundBounce: true, anim: 't:airspike:n' }),
+    B_n: atk('돌려차기', [11, 5, 20], 78, [4, 14, 56, 32], { kbX: 6.5, kbY: 3.5, wallBounce: true, anim: 't:kick:n', sfx: 'heavy' }),
+    B_f: atk('와이어 킥', [10, 8, 18], 68, [6, 14, 40, 30], { dash: 4.5, lift: 3, kbX: 6, anim: 't:airkick:n' }),
+    B_u: atk('공중제비 킥', [8, 6, 20], 62, [-4, 30, 38, 56], { kbY: 7, juggle: true, lift: 4, anim: 't:upper:n' }),
+    B_d: atk('슬라이딩', [8, 10, 18], 52, [6, 0, 44, 14], { low: true, dash: 4.5, kbY: 3, anim: 't:sweep:n' }),
+    B_air: atk('공중 돌려차기', [7, 8, 12], 62, [0, -4, 50, 34], { ...air, anim: 't:airkick:n' }),
+    B_dash: atk('드롭킥', [6, 10, 18], 70, [6, 14, 40, 30], { dash: 5, kbX: 7, wallBounce: true, anim: 't:airkick:n' }),
+    C_n: shot('명대사', [10, 1, 18], { kind: 'shout', vx: 5, life: 80, w: 26, h: 26, damage: 40 }, { cd: 90, anim: 't:shout:n', sfx: 'shout', voice: '이거 실화냐!' }),
+    C_f: eff('스턴트 구르기', 'roll', [2, 18, 12], { cd: 120, dash: 4, anim: 'special2', voice: '대역 없이!' }),
+    C_d: atk('클로즈업 표정연기', [10, 4, 18], 18, [6, 10, 64, 50], { hitstun: 62, cd: 240, anim: 't:pose:n', voice: '(울컥…)' }),
+    C_u: atk('와이어 액션', [6, 10, 16], 48, [0, 10, 36, 40], { lift: 9, dash: 2, kbY: 5, juggle: true, anim: 't:upper:n' }),
+    C_air: shot('공중 명대사', [8, 1, 14], { kind: 'shout', vx: 5, vy: -1.5, w: 22, h: 22, damage: 32 }, { air: true, anim: 't:shout:n', sfx: 'shout' }),
+    D_n: eff('배역 전환', 'role', [8, 1, 8], { cd: 60, anim: 'trait', voice: '이번엔 이 배역!' }),
+    D_d: eff('즉흥 연기', 'improv', [8, 1, 12], { cd: 480, anim: 'trait', voice: '방금 그거… 나도!' }),
+    D_f: eff('대역 교체', 'double', [2, 20, 10], { cd: 300, anim: 'special2' }),
+    // 사극: 소품 칼로 길고 묵직하게
+    'A_n~sageuk': atk('칼 찌르기', [6, 4, 12], 38, [10, 22, 64, 14], { vfx: 'slash', anim: 't:thrust:l' }),
+    'B_n~sageuk': atk('일도양단', [14, 6, 22], 92, [4, 10, 104, 42], { kbX: 7, kbY: 4, wallBounce: true, vfx: 'slash', anim: 't:overhead:l', sfx: 'heavy', voice: '이얍!!' }),
+    'B_f~sageuk': atk('찌르기 돌진', [10, 8, 18], 72, [10, 20, 70, 16], { dash: 5, vfx: 'slash', anim: 't:dashstrike:l' }),
+    // 호러: 기어 오고 소름 끼치게
+    'A_n~horror': atk('소름 손짓', [6, 6, 12], 30, [6, 10, 42, 40], { debuff: { slow: 60 }, anim: 't:point:n' }),
+    'B_n~horror': atk('처녀귀신 기어오기', [10, 16, 18], 28, [4, 0, 40, 26], { low: true, dash: 3, multiHit: { interval: 5, max: 3 }, anim: 't:sweep:n', voice: '끼기기긱…' }),
+    'B_f~horror': atk('귀신 순간이동 할퀴기', [12, 6, 18], 60, [6, 14, 40, 36], { effect: 'blinkBehind', vfx: 'claw', anim: 't:blink:n' }),
+    R: atk('액션 클라이맥스', [12, 20, 30], 30, [0, 8, 64, 44], { cost: 100, dash: 5, ult: { total: 290, cine: 160 }, anim: 't:dashstrike:l', sfx: 'super', voice: '이 장면… 내가 주인공!' }),
+    duel3: atk('결투 3연격', [6, 10, 18], 26, [8, 20, 40, 24], { multiHit: { interval: 4, max: 3 }, vfx: 'slash', anim: 't:flurry:l' }),
+    spin_slash: atk('회전 베기', [6, 14, 18], 44, [-24, 10, 74, 34], { multiHit: { interval: 7, max: 2 }, lastHitKbY: 4, vfx: 'slash', anim: 't:spin:l' }),
+    ranmu: atk('난무', [6, 24, 16], 16, [2, 14, 34, 32], { dash: 3, multiHit: { interval: 5, max: 5 }, lastHitKbY: 5, vfx: 'slash', anim: 't:flurry:l', voice: '이건 애드리브!' }),
+    wire_flykick: atk('와이어 플라잉킥', [8, 12, 18], 70, [6, 14, 40, 30], { dash: 5.5, lift: 3, kbX: 7, kbY: 4, wallBounce: true, afterimage: true, anim: 't:airkick:n', voice: '와이어 당겨!' }),
+    dash_thrust: atk('돌진 찌르기', [8, 10, 18], 72, [6, 20, 64, 16], { dash: 6, kbX: 6, vfx: 'slash', anim: 't:dashstrike:l', voice: '액션!' }),
+    rising_slash: atk('칼 올려베기', [8, 6, 24], 82, [-6, 24, 42, 66], { kbY: 9, juggle: true, finisher: true, vfx: 'slash', anim: 't:upper:l', voice: '클라이맥스!' }),
+    stunt_counter: atk('대역 교체 반격', [4, 8, 16], 48, [6, 10, 40, 40], { effect: 'double', kbX: 5, kbY: 3, anim: 't:dashstrike:n' }),
+    line_bomb: shot('명대사 폭탄', [12, 1, 18], { kind: 'shout', vx: 5.5, life: 100, w: 34, h: 34, damage: 54, kbY: 3 }, { cd: 150, anim: 't:shout:n', sfx: 'shout', voice: '너 나한테 왜 그랬어!!' }),
+    crying_act: atk('오열 연기', [12, 10, 20], 26, [-60, 0, 186, 42], { hitstun: 42, cd: 240, anim: 't:burst:n', voice: '흐어어엉…' }),
+    ukemi_drop: atk('낙법 찍기', [8, 14, 14], 64, [-4, -16, 40, 32], { ...air, lift: -8, groundBounce: true, anim: 't:dive:n' }),
+  }, actorCmds),
 }
 
 export const CHARACTERS: CharacterData[] = [DP, DIRECTOR, SOUND, GAFFER, ART, MAKEUP, ACTOR]
 export const getCharacter = (id: string) => CHARACTERS.find((c) => c.id === id) ?? DP
 
-/** 기술표용: 버튼 토큰 → 한글 */
-export const BTN_LABEL: Record<string, string> = { L: '약', H: '강', S: 'Q', X: 'R', dL: '↓+약', dH: '↓+강', dS: 'W' }
+/** 기술표용: 토큰 → 한글 */
+export const TOK_LABEL: Record<string, string> = { A: 'A', B: 'B', C: 'C', D: 'D', R: 'R', f: '→', b: '←', u: '↑', d: '↓', dash: '대시', bs: '백스텝', jump: '점프', airdash: '공중대시' }
+export const cmdLabel = (c: Command) => `${c.air ? '공중 ' : ''}${c.seq.map((t) => TOK_LABEL[t]).join(' ')}`
+/** 기술 칸 → 한글 입력 */
+export function slotLabel(id: string): string {
+  const [slot, mode] = id.split('~')
+  if (slot === 'R') return 'R'
+  const [btn, dir] = slot.split('_')
+  const d: Record<string, string> = { n: '', f: '→', b: '←', u: '↑', d: '↓', air: '공중 ', aird: '공중 ↓', dash: '대시 중 ' }
+  const pre = d[dir] ?? ''
+  const label = pre.endsWith(' ') ? `${pre}${btn}` : `${pre}${pre ? '+' : ''}${btn}`
+  const MODE: Record<string, string> = { wide: '광각', tele: '망원', creature: '크리처', sageuk: '사극', horror: '호러' }
+  return mode ? `${label} (${MODE[mode] ?? mode})` : label
+}
 
-/** 장비 세트 (gfx/Painter KITS) */
 export const KIT_OF: Record<string, string> = { dp: 'camera', director: 'director', sound: 'sound', gaffer: 'gaffer', art: 'art', makeup: 'makeup', actor: 'actor' }
 
 /** 직급별 배율: 체력·공격력 (스테이지 모드) */
@@ -290,5 +501,25 @@ export const RANK_MUL = [0.85, 0.9, 0.95, 1, 1.06]
 export function atRank(c: CharacterData, rank: number): CharacterData {
   const moves: Record<MoveId, MoveData> = {}
   for (const [id, m] of Object.entries(c.moves)) if ((m.rank ?? 0) <= rank) moves[id] = m
-  return { ...c, moves, combos: c.combos.filter((k) => moves[k.move]) }
+  return { ...c, moves, commands: c.commands.filter((k) => moves[k.move]) }
+}
+
+/** 기술의 입력 방법 (커맨드면 커맨드, 아니면 칸) */
+export function howTo(c: CharacterData, id: MoveId): string {
+  const k = c.commands.find((x) => x.move === id)
+  return k ? cmdLabel(k) : slotLabel(id)
+}
+
+/** 기술표: 구역별 "입력 ▶ 이름" 줄 */
+export function moveList(c: CharacterData): { title: string; lines: string[] }[] {
+  const line = (id: MoveId) => { const m = c.moves[id]!; return `${howTo(c, id)} ▶ ${m.name}${m.cost ? ` (SP ${m.cost})` : ''}` }
+  const cmdIds = new Set(c.commands.map((k) => k.move))
+  const slots = Object.keys(c.moves).filter((id) => !cmdIds.has(id) && !id.startsWith('copy'))
+  const base = slots.filter((id) => !id.includes('~'))
+  return [
+    { title: 'A·B 기본기', lines: base.filter((id) => id[0] === 'A' || id[0] === 'B').map(line) },
+    { title: 'C 직업기 · D 특성기 · R 궁극기', lines: base.filter((id) => id[0] === 'C' || id[0] === 'D' || id === 'R').map(line) },
+    { title: '고유 커맨드', lines: c.commands.filter((k) => c.moves[k.move]).map((k) => line(k.move)) },
+    { title: '특성 모드 변형', lines: slots.filter((id) => id.includes('~')).map(line) },
+  ].filter((s) => s.lines.length)
 }

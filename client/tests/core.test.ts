@@ -4,6 +4,7 @@ import { Match } from '../src/core/Match'
 import { DP } from '../src/config/characters'
 import { emptyInput, type InputState } from '../src/core/types'
 import { SimpleAI } from '../src/core/AI'
+import { cdKey } from '../src/core/Traits'
 
 const idle = () => emptyInput()
 const press = (k: keyof InputState, extra: Partial<InputState> = {}) => ({ ...emptyInput(), [k]: true, ...extra })
@@ -118,14 +119,14 @@ describe('전투 로직', () => {
     expect(m.wins[1]).toBe(1)
   })
 
-  it('Q 스킬은 쿨타임 동안 다시 못 쓰고, 필살(R)은 SP 100이 있어야 나간다', () => {
+  it('D 렌즈 교체는 쿨타임 동안 다시 못 쓰고, 궁극기(R)는 SP 100이 있어야 나간다', () => {
     const m = new Match(DP, DP); toFight(m)
     m.fighters[1].x = 400
-    m.step([press('special'), idle()])
+    m.step([press('trait'), idle()])
     expect(m.fighters[0].state).toBe('attack')
-    for (let i = 0; i < 60; i++) m.step([idle(), idle()])
-    expect(m.fighters[0].cds.special1).toBeGreaterThan(0)
-    m.step([press('special'), idle()])
+    for (let i = 0; i < 16; i++) m.step([idle(), idle()])
+    expect(m.fighters[0].cds[cdKey('D_n')]).toBeGreaterThan(0)
+    m.step([press('trait'), idle()])
     expect(m.fighters[0].state).not.toBe('attack')
     m.step([press('super'), idle()])
     expect(m.fighters[0].state).not.toBe('attack')
@@ -178,19 +179,19 @@ describe('커맨드 콤보', () => {
   }
   it('약 약 강 → 트라이포드 어퍼 (상대가 높이 뜬다)', () => {
     const { m, moves } = run([{ light: true }, { light: true }, { heavy: true }])
-    expect(moves).toEqual(['light', 'light', 'upper'])
+    expect(moves).toEqual(['A_n', 'A_n', 'tripod_upper'])
     expect(m.fighters[1].hp).toBeLessThan(DP.hp - 100)
   })
   it('빗나가도 순서만 맞으면 콤보 기술이 나간다', () => {
     const { moves } = run([{ light: true }, { light: true }, { heavy: true }], 9, false)
-    expect(moves).toEqual(['light', 'light', 'upper'])
+    expect(moves).toEqual(['A_n', 'A_n', 'tripod_upper'])
   })
   it('강 강 → 회전베기, 약 강 강 → 줌인 펀치', () => {
-    expect(run([{ heavy: true }, { heavy: true }], 14).moves).toEqual(['heavy', 'spin'])
-    expect(run([{ light: true }, { heavy: true }, { heavy: true }], 12).moves).toEqual(['light', 'heavy', 'zoompunch'])
+    expect(run([{ heavy: true }, { heavy: true }], 14).moves).toEqual(['B_n', 'spin_360'])
+    expect(run([{ light: true }, { heavy: true }, { heavy: true }], 12).moves).toEqual(['A_n', 'B_n', 'zoom_punch'])
   })
   it('히트스톱 중에 누른 버튼도 놓치지 않는다 (사람 타이밍 10~16프레임)', () => {
-    for (let g = 10; g <= 16; g++) expect(run([{ light: true }, { heavy: true }, { heavy: true }], g).moves, `gap ${g}`).toEqual(['light', 'heavy', 'zoompunch'])
+    for (let g = 10; g <= 16; g++) expect(run([{ light: true }, { heavy: true }, { heavy: true }], g).moves, `gap ${g}`).toEqual(['A_n', 'B_n', 'zoom_punch'])
   })
   it('약 약 강 어퍼는 약 두 대로 밀린 상대에게도 닿아서 띄운다', () => {
     for (let g = 8; g <= 12; g++) {
@@ -214,25 +215,40 @@ describe('커맨드 콤보', () => {
   }
   it('경직 중에 미리 누른 버튼은 기술이 끝나면 나간다 (선입력)', () => {
     // 헛친 강공격(총 33프레임)의 경직 끝 무렵에 약 → 강이 끝나자마자 약
-    expect(at({ 0: { heavy: true }, 30: { light: true } }, false).moves).toEqual(['heavy', 'light'])
+    expect(at({ 0: { heavy: true }, 30: { light: true } }, false).moves).toEqual(['B_n', 'A_n'])
   })
   it('아주 빠르게 약 약 강을 눌러도 순서대로 기억해서 어퍼가 나간다', () => {
-    expect(at({ 0: { light: true }, 2: { light: true }, 4: { heavy: true } }).moves).toEqual(['light', 'light', 'upper'])
+    expect(at({ 0: { light: true }, 2: { light: true }, 4: { heavy: true } }).moves).toEqual(['A_n', 'A_n', 'tripod_upper'])
   })
   it('게이지 없는 필살 버튼이 다른 버튼을 막지 않는다', () => {
-    expect(at({ 0: { light: true }, 3: { super: true }, 5: { light: true } }).moves).toEqual(['light', 'light'])
+    expect(at({ 0: { light: true }, 3: { super: true }, 5: { light: true } }).moves).toEqual(['A_n', 'A_n'])
   })
   it('강 강: 첫 강공격이 판정을 낸 뒤에 회전베기로 이어진다', () => {
     const { moves, hits } = at({ 0: { heavy: true }, 4: { heavy: true } })
-    expect(moves).toEqual(['heavy', 'spin'])
-    expect(hits[0]).toBe(DP.moves.heavy!.name)
+    expect(moves).toEqual(['B_n', 'spin_360'])
+    expect(hits[0]).toBe(DP.moves.B_n!.name)
   })
   it('↓+강 → 로우앵글 스윕', () => {
-    expect(run([{ heavy: true, down: true }]).moves).toEqual(['sweep'])
+    expect(run([{ heavy: true, down: true }]).moves).toEqual(['B_d'])
   })
-  it('게이지가 없으면 약 강 특(롱테이크 러시) 대신 아무것도 안 나감', () => {
-    const { moves } = run([{ light: true }, { heavy: true }, { special: true }], 12)
-    expect(moves.slice(0, 2)).toEqual(['light', 'heavy'])
-    expect(moves).not.toContain('rush')
+  it('게이지가 없으면 A B 뒤 R(궁극기)은 안 나감', () => {
+    const { moves } = run([{ light: true }, { heavy: true }, { super: true }], 12)
+    expect(moves.slice(0, 2)).toEqual(['A_n', 'B_n'])
+    expect(moves).not.toContain('R')
+  })
+  it('↓→C 같은 이동+버튼 커맨드: 돌리 트랙', () => {
+    expect(run([{ down: true }, { right: true }, { right: true, special: true }], 3, false).moves).toContain('dolly_track')
+  })
+  it('→→ 대시, ←← 백스텝(잠깐 무적)', () => {
+    const m = new Match(DP, DP); toFight(m)
+    const x0 = m.fighters[0].x
+    for (const f of [{ right: true }, {}, { right: true }]) m.step([{ ...emptyInput(), ...f }, idle()])
+    expect(m.fighters[0].state).toBe('dash')
+    for (let i = 0; i < 20; i++) m.step([press('right'), idle()])
+    expect(m.fighters[0].x).toBeGreaterThan(x0 + 60)
+    for (let i = 0; i < 20; i++) m.step([idle(), idle()])
+    for (const f of [{ left: true }, {}, { left: true }]) m.step([{ ...emptyInput(), ...f }, idle()])
+    expect(m.fighters[0].state).toBe('backstep')
+    expect(m.fighters[0].invuln).toBeGreaterThan(0)
   })
 })

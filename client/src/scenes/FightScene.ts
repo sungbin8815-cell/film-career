@@ -4,13 +4,13 @@ import { Match } from '../core/Match'
 import type { Fighter } from '../core/Fighter'
 import { METER_MAX } from '../core/Fighter'
 import { SimpleAI } from '../core/AI'
-import { emptyInput, FPS, type MatchEvent } from '../core/types'
-import { getCharacter, BTN_LABEL, atRank, RANK_MUL } from '../config/characters'
+import { emptyInput, FPS, STAGE_W, type MatchEvent } from '../core/types'
+import { getCharacter, atRank, RANK_MUL, howTo, moveList } from '../config/characters'
 import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
-import { TRAIT_INFO, LENSES } from '../core/Traits'
+import { TRAIT_INFO, LENSES, cdKey } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
-import { animsFor } from '../gfx/charPoses'
+import { animsFor, animOf } from '../gfx/charPoses'
 import { FW, FH, FOOT_Y } from '../gfx/Painter'
 import type { Controls } from '../ui/Controls'
 import { button, text, COLOR, FONT } from '../ui/widgets'
@@ -100,7 +100,12 @@ export class FightScene extends Phaser.Scene {
   create() {
     const W = this.scale.width
     const before = new Set(this.children.list)
-    this.add.image(0, 0, this.bg).setOrigin(0)
+    // 넓은 스테이지: 배경 판을 이어 붙임 (가운데는 좌우 반전), 위쪽은 스튜디오 천장
+    const ceil = this.add.graphics()
+    ceil.fillStyle(0x0d0b17, 1).fillRect(-40, -320, STAGE_W + 80, 322)
+    ceil.lineStyle(2, 0x2f2a4d, 1)
+    for (const yy of [-250, -150, -50]) { ceil.lineBetween(-40, yy, STAGE_W + 40, yy); ceil.lineBetween(-40, yy + 12, STAGE_W + 40, yy + 12); for (let x = 0; x < STAGE_W; x += 24) ceil.lineBetween(x, yy, x + 12, yy + 12) }
+    for (let x = 0, k = 0; x < STAGE_W; x += 480, k++) this.add.image(x, 0, this.bg).setOrigin(0).setFlipX(k % 2 === 1)
     for (const t of this.match.teams) for (const f of t.members) ensureFighterTexture(this, this.keyOf(f))
     this.controls = this.registry.get('controls') as Controls
     this.controls.show(true)
@@ -119,7 +124,7 @@ export class FightScene extends Phaser.Scene {
     const hudObjs = this.children.list.filter((o) => !before.has(o) && !worldObjs.includes(o))
     // 카메라 두 대: 메인 = 두 캐릭터를 따라가며 확대, UI = HUD 고정
     const main = this.cameras.main
-    main.setBounds(0, 0, 480, 270).setZoom(this.zoom).centerOn(240, GROUND - 52)
+    main.setBounds(0, -320, STAGE_W, 590).setZoom(this.zoom).centerOn(this.match.fighters[0].x / 2 + this.match.fighters[1].x / 2, GROUND - 52)
     main.ignore(hudObjs)
     this.uiCam = this.cameras.add(0, 0, 480, 270)
     this.uiCam.ignore(worldObjs)
@@ -179,7 +184,7 @@ export class FightScene extends Phaser.Scene {
       this.hud.hpLag[i].width = 190 * this.lagHp[i]
       this.hud.meter[i].width = 100 * (f.meter / METER_MAX)
       this.hud.meter[i].fillColor = f.meter >= 100 ? 0xffd23f : 0x5ec8ff
-      this.hud.meterTxt[i].setText(f.meter >= 100 ? '필살 OK!' : `SP ${Math.floor(f.meter)}`)
+      this.hud.meterTxt[i].setText(f.meter >= 100 ? '궁극기 OK!' : `SP ${Math.floor(f.meter)}`)
       this.hud.pips[i].forEach((p, k) => p.setFillStyle(k < m.wins[i] ? 0xffd23f : 0x0a0812))
       if (m.tag) {
         const t = m.teams[i], p = t.members.find((x) => x !== f)!
@@ -199,10 +204,11 @@ export class FightScene extends Phaser.Scene {
     // 스킬 버튼: 쿨타임 숫자, 쓸 수 있으면 불
     const me = m.fighters[0]
     const live = m.phase === 'fight'
-    for (const [slot, id] of [['Q', 'special1'], ['W', 'special2'], ['E', 'trait']] as const) {
-      const mv = me.char.moves[m.world.remapMove(me, id)]
-      const cd = me.cds[id] ?? 0
-      this.controls.setSkill(slot, slot === 'E' ? TRAIT_INFO[me.char.trait].button : slot, cd, live && !!mv && m.world.canUse(me, mv))
+    for (const slot of ['C', 'D'] as const) {
+      const id = m.world.remapMove(me, `${slot}_n`)
+      const mv = me.char.moves[id]
+      const cd = mv ? me.cds[cdKey(mv.id)] ?? 0 : 0
+      this.controls.setSkill(slot, slot === 'D' ? TRAIT_INFO[me.char.trait].button : 'C', cd, live && !!mv && m.world.canUse(me, mv))
     }
   }
 
@@ -234,7 +240,7 @@ export class FightScene extends Phaser.Scene {
     if (f.state === 'attack' && f.move) {
       const m = f.move
       const ANIMS = animsFor(f.char.id)
-      const want = m.anim ?? m.id
+      const want = m.copyOf ? m.anim ?? m.id : animOf(m)
       const animId = ANIMS[want] ? want : 'light'   // 애니메이션이 없는 기술은 약공격 모션으로
       const def = ANIMS[animId]
       const n = def.frames.length
@@ -315,7 +321,7 @@ export class FightScene extends Phaser.Scene {
   /** 커맨드 콤보 배너: "약 약 강 ▶ 트라이포드 어퍼!" */
   private comboBanner(fighter: number, moveId: string, name: string) {
     const ch = this.match.fighters[fighter].char
-    const seq = ch.combos.find((c) => c.move === moveId)?.seq.map((t) => BTN_LABEL[t]).join(' ') ?? ''
+    const seq = howTo(ch, moveId)
     const y = 206   // 머리 위 말풍선과 겹치지 않게 아래쪽에
     const band = this.ui(this.add.rectangle(fighter === 0 ? -240 : 720, y, 300, 24, fighter === 0 ? 0x2f6fe4 : 0xe0353f).setDepth(39).setAngle(-4))
     const t = this.ui(this.add.text(fighter === 0 ? -240 : 720, y, `${seq} ▶ ${name}!`, { fontFamily: FONT, fontSize: '14px', color: '#fff8e7', stroke: '#0a0812', strokeThickness: 3, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(40).setAngle(-4))
@@ -333,7 +339,7 @@ export class FightScene extends Phaser.Scene {
     const dark = this.ui(this.add.rectangle(0, 0, 480, 270, 0x0a0812, 0.65).setOrigin(0).setDepth(36))
     const band = this.ui(this.add.rectangle(240, 140, 480, 64, fighter === 0 ? 0x2f6fe4 : 0xe0353f).setDepth(37))
     const who = this.ui(this.add.sprite(fighter === 0 ? -60 : 540, 172, key, `super_${Math.min(1, animsFor(f.char.id).super.frames.length - 1)}`).setOrigin(0.5, 1).setScale(2.2).setFlipX(fighter !== 0).setDepth(38))
-    const t = this.ui(this.add.text(fighter === 0 ? 300 : 180, 140, `🎥 ${f.move?.name ?? '필살기'}!!`, { fontFamily: FONT, fontSize: '22px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 4, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(39).setScale(1.8))
+    const t = this.ui(this.add.text(fighter === 0 ? 300 : 180, 140, `🎥 ${f.move?.name ?? '궁극기'}!!`, { fontFamily: FONT, fontSize: '22px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 4, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(39).setScale(1.8))
     this.tweens.add({ targets: top, y: 0, duration: 120 }); this.tweens.add({ targets: bot, y: 240, duration: 120 })
     this.tweens.add({ targets: who, x: fighter === 0 ? 110 : 370, duration: 200, ease: 'Cubic.out' })
     this.tweens.add({ targets: t, scale: 1, duration: 160, ease: 'Back.out' })
@@ -354,7 +360,7 @@ export class FightScene extends Phaser.Scene {
       if (!img) {
         // 그림 기준점: 조명은 바닥(72), 빛기둥은 바닥(66), 나머지는 물체 가운데(60)
         const oy = p.kind === 'lightstand' ? 1 : p.kind === 'beam' ? 66 / FH : 60 / FH
-        img = this.w(this.add.image(p.x, GROUND - p.y, `proj_${p.kind}`).setOrigin(0.5, oy).setDepth(8).setFlipX(p.vx < 0)); this.projSprites.set(p, img)
+        img = this.w(this.add.image(p.x, GROUND - p.y, this.textures.exists(`proj_${p.kind}`) ? `proj_${p.kind}` : 'proj_snipe').setOrigin(0.5, oy).setDepth(8).setFlipX(p.vx < 0)); this.projSprites.set(p, img)
       }
       const mid = p.kind === 'lightstand' || p.kind === 'beam' ? 0 : p.h / 2
       img.setPosition(Math.round(p.x), Math.round(GROUND - p.y - mid))
@@ -421,7 +427,8 @@ export class FightScene extends Phaser.Scene {
       if (f.char.trait === 'makeup' && t.res > 0) { g.lineStyle(1, 0xff7eb6, 0.25 + 0.5 * (t.res / 100)); g.strokeEllipse(f.x, GROUND - f.y - 26, 34, 58) }
     })
     for (const bx of W.boxes) {      // 미술 애플박스 (발판)
-      const x = bx.x, top = GROUND - bx.h
+      const x = bx.x, top = GROUND - bx.y - bx.h
+      if (bx.y > 0) { g.fillStyle(0x6b4423, 1).fillRect(x - bx.w / 2 + 2, top + bx.h, 2, Math.min(bx.y, 40)).fillRect(x + bx.w / 2 - 4, top + bx.h, 2, Math.min(bx.y, 40)) }
       g.fillStyle(0x0a0812, 1).fillRect(x - bx.w / 2 - 1, top - 1, bx.w + 2, bx.h + 1)
       g.fillStyle(0xd6a35c, 1).fillRect(x - bx.w / 2, top, bx.w, bx.h)
       g.fillStyle(0x8b5a2b, 1).fillRect(x - 6, top + 5, 12, 5).fillRect(x - bx.w / 2, top, bx.w, 1)
@@ -429,23 +436,54 @@ export class FightScene extends Phaser.Scene {
       g.fillStyle(bx.owner === 0 ? 0x5ec8ff : 0xff5470, 1).fillRect(x - bx.w / 2, top, 3, 2)
     }
     for (const w of W.walls) {       // 합판 세트벽 (금 간 정도 = 남은 내구도)
-      const x = w.x, top = GROUND - 46
-      g.fillStyle(0x0a0812, 1).fillRect(x - 7, top - 1, 14, 47)
-      g.fillStyle(0xc8955c, 1).fillRect(x - 6, top, 12, 46)
-      g.fillStyle(0xa87442, 1).fillRect(x - 6, top + 15, 12, 1).fillRect(x - 6, top + 31, 12, 1).fillRect(x - 1, top, 1, 46)
+      const x = w.x, hh = w.h, top = GROUND - hh
+      g.fillStyle(0x0a0812, 1).fillRect(x - 7, top - 1, 14, hh + 1)
+      g.fillStyle(0xc8955c, 1).fillRect(x - 6, top, 12, hh)
+      g.fillStyle(0xa87442, 1).fillRect(x - 6, top + hh / 3, 12, 1).fillRect(x - 6, top + (hh * 2) / 3, 12, 1).fillRect(x - 1, top, 1, hh)
       g.fillStyle(0x6b4423, 1).fillRect(x - 8, GROUND - 4, 16, 4)
       g.lineStyle(1, 0x3b2312, 1)
       if (w.hp <= 2) g.lineBetween(x - 4, top + 6, x + 2, top + 18).lineBetween(x + 2, top + 18, x - 1, top + 24)
       if (w.hp <= 1) g.lineBetween(x + 4, top + 26, x - 3, top + 38).lineBetween(x - 3, top + 38, x + 2, top + 44)
       g.fillStyle(w.owner === 0 ? 0x5ec8ff : 0xff5470, 1).fillRect(x - 6, top, 12, 2)
     }
-    for (const sf of (W as unknown as { sofas: { x: number; t: number; landed: boolean }[] }).sofas) {   // 소파: 떨어질 자리 그림자 → 쾅
-      const y = sf.landed ? GROUND - 14 : GROUND - 14 - sf.t * 5
-      g.fillStyle(0x000000, sf.landed ? 0.3 : 0.15 + (36 - sf.t) * 0.01).fillEllipse(sf.x, GROUND + 1, 50, 6)
-      g.fillStyle(0x0a0812, 1).fillRect(sf.x - 23, y - 1, 46, 16)
-      g.fillStyle(0xb91c1c, 1).fillRect(sf.x - 22, y, 44, 14)
-      g.fillStyle(0x7f1d1d, 1).fillRect(sf.x - 22, y + 8, 44, 6).fillRect(sf.x - 22, y - 6, 8, 14).fillRect(sf.x + 14, y - 6, 8, 14)
-      g.fillStyle(0xfca5a5, 1).fillRect(sf.x - 12, y + 2, 10, 2).fillRect(sf.x + 2, y + 2, 10, 2)
+    for (const d of W.delayed) {     // 떨어질 자리 경고 → 쾅 (소파·조명·기둥·붕괴)
+      const warn = Math.max(0, d.t)
+      const col = d.kind === 'sofa' ? 0xb91c1c : d.kind === 'pillar' ? 0x86efac : d.kind === 'toplight' ? 0xfef08a : 0xd6a35c
+      g.fillStyle(col, 0.12 + 0.25 * (this.tick % 10 < 5 ? 1 : 0)).fillEllipse(d.x, GROUND + 1, 54, 7)
+      g.lineStyle(1, col, 0.8).strokeEllipse(d.x, GROUND + 1, 54 - warn, 7)
+      if (d.kind === 'sofa') {
+        const y = GROUND - 14 - warn * 5
+        g.fillStyle(0x0a0812, 1).fillRect(d.x - 23, y - 1, 46, 16)
+        g.fillStyle(0xb91c1c, 1).fillRect(d.x - 22, y, 44, 14)
+        g.fillStyle(0x7f1d1d, 1).fillRect(d.x - 22, y + 8, 44, 6).fillRect(d.x - 22, y - 6, 8, 14).fillRect(d.x + 14, y - 6, 8, 14)
+      } else if (warn < 6) g.fillStyle(col, 0.5).fillRect(d.x - 10, 0, 20, GROUND)
+    }
+    for (const fl of W.fields) {     // 장판: 우퍼(음파 고리) · 바닥 조명 · 독
+      const col = fl.kind === 'woofer' ? 0x86efac : fl.kind === 'floorlight' ? 0xfef08a : 0xa3e635
+      g.fillStyle(col, 0.16).fillRect(fl.x - fl.w / 2, GROUND - 3, fl.w, 5)
+      for (let k = 0; k < 3; k++) { const r = ((this.tick * 0.6 + k * 12) % 36) / 36; g.lineStyle(1, col, 0.6 * (1 - r)).strokeEllipse(fl.x, GROUND, fl.w * r, 8 * r) }
+    }
+    for (const r of W.reflectors) {  // 조명 반사판
+      g.fillStyle(0x0a0812, 1).fillRect(r.x - 1, GROUND - 30, 3, 30)
+      g.fillStyle(0xe5e7eb, 1).fillRect(r.x - 8, GROUND - 46, 16, 18)
+      g.fillStyle(0xfef9c3, 0.6 + 0.3 * Math.sin(this.tick * 0.2)).fillRect(r.x - 6, GROUND - 44, 12, 14)
+    }
+    for (const e of W.extras) {      // 연출 엑스트라: 단역 배우 (팀 색 조끼)
+      const x = e.x, y = GROUND - e.y
+      const col = e.owner === 0 ? 0x5ec8ff : 0xff5470
+      const bob = e.lunge > 0 ? 0 : Math.sin(this.tick * 0.3 + x) * 1
+      g.fillStyle(0x0a0812, 1).fillRect(x - 6, y - 34 + bob, 12, 34)
+      g.fillStyle(0xf1c27d, 1).fillCircle(x, y - 30 + bob, 4)
+      g.fillStyle(0x64748b, 1).fillRect(x - 5, y - 25 + bob, 10, 12)
+      g.fillStyle(col, 1).fillRect(x - 5, y - 25 + bob, 10, 3)
+      g.fillStyle(0x334155, 1).fillRect(x - 4, y - 13, 3, 12).fillRect(x + 1, y - 13, 3, 12)
+      if (e.lunge > 0) g.lineStyle(2, 0xffffff, 0.5).lineBetween(x - 14, y - 20, x - 24, y - 20)
+    }
+    // 망원 렌즈: 조준선 (화면 끝까지)
+    for (const f of m.fighters) if (f.char.trait === 'lens' && f.trait.lens === 2 && f.hp > 0) {
+      const y = GROUND - f.y - 26, full = f.trait.focus >= 100
+      g.lineStyle(1, full ? 0xff5470 : 0x93e1ff, full ? 0.7 : 0.3)
+      for (let k = 0; k < 40; k++) { const x0 = f.x + f.facing * (24 + k * 14); g.lineBetween(x0, y, x0 + f.facing * 7, y) }
     }
   }
 
@@ -633,7 +671,7 @@ export class FightScene extends Phaser.Scene {
       case 'blind': this.popText(e.x, 84, '눈 따가워!', '#fbcfe8'); break
       case 'cleanse': burst(f.x, GROUND - 26, 0xff7eb6, 30, 56); this.cameras.main.flash(90, 255, 220, 240); this.onomato(f.x, 60, '싹!!', '#ff7eb6'); sfx('spray'); sfx('hitHeavy'); break
       case 'observe': this.popText(f.x, 84, `관찰 ${e.value}/2`, '#5eead4'); break
-      case 'learn': case 'improv': this.popText(f.x, 84, `${e.value === 1 ? 'Q' : 'W'} 복사: ${f.char.moves[`copy${e.value}`]?.name ?? ''}!`, '#5eead4'); burst(f.x, GROUND - 40, 0x5eead4, 12, 22); sfx('trait'); break
+      case 'learn': case 'improv': this.popText(f.x, 84, `${e.value === 1 ? 'C' : '→C'} 복사: ${f.char.moves[`copy${e.value}`]?.name ?? ''}!`, '#5eead4'); burst(f.x, GROUND - 40, 0x5eead4, 12, 22); sfx('trait'); break
     }
   }
 
@@ -641,7 +679,7 @@ export class FightScene extends Phaser.Scene {
   private followCamera() {
     const [a, b] = this.match.fighters
     const dist = Math.abs(a.x - b.x)
-    const target = Phaser.Math.Clamp(480 / (dist + 190), 1.15, 1.9)
+    const target = Phaser.Math.Clamp(480 / (dist + 170), 0.5, 1.8)
     this.zoom += (target - this.zoom) * 0.08
     this.zoomKick *= 0.88
     this.camKick.x *= 0.78; this.camKick.y *= 0.78
@@ -662,18 +700,26 @@ export class FightScene extends Phaser.Scene {
       this.pauseLayer.add(text(this, W / 2, 18, 'PAUSE · 기술표', 16, COLOR.accent))
       this.controls.show(false)   // 기술표를 가리지 않게 터치 버튼 숨김
       const ch = this.match.fighters[0].char
-      const sp = (id: string) => ch.moves[id]?.cost ? ` (SP ${ch.moves[id]!.cost})` : ''
-      // 왼쪽: 커맨드 콤보 / 오른쪽: 특수·필살·고유 특성
-      const combos = ch.combos.map((c) => `${c.seq.map((t) => BTN_LABEL[t]).join(' ')} ▶ ${ch.moves[c.move]?.name ?? c.move}${sp(c.move)}`)
-      if (this.setup.stage != null && this.setup.stage < 4) combos.push('', '(직급이 오르면 기술이 더 생겨요)')
-      this.pauseLayer.add(text(this, 20, 40, '커맨드 콤보', 11, COLOR.dim, 0).setOrigin(0, 0))
-      this.pauseLayer.add(text(this, 20, 56, combos.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(3))
-      const basic = [['Q', 'special1'], ['W', 'special2'], ['R', 'super']].filter(([, id]) => ch.moves[id]).map(([k, id]) => { const mid = this.match.world.remapMove(this.match.fighters[0], id); return `${k} ▶ ${ch.moves[mid]?.name ?? ch.moves[id]!.name}${sp(mid)}` })
-      this.pauseLayer.add(text(this, 250, 40, '스킬', 11, COLOR.dim, 0).setOrigin(0, 0))
-      this.pauseLayer.add(text(this, 250, 56, basic.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(3))
+      // 기술표: 구역을 쪽으로 나눠 ◀ ▶ 로 넘김
+      const pages: { title: string; lines: string[] }[] = []
+      for (const sec of moveList(ch)) for (let i = 0; i < sec.lines.length; i += 20) pages.push({ title: sec.title, lines: sec.lines.slice(i, i + 20) })
       const ti = TRAIT_INFO[ch.trait]
-      this.pauseLayer.add(text(this, 250, 116, `E ▶ ${ti.name} · 패시브: ${ti.passive}`, 11, '#5eead4', 0).setOrigin(0, 0).setWordWrapWidth(215))
-      this.pauseLayer.add(text(this, 250, 150, ti.desc, 11, COLOR.ink, 0).setOrigin(0, 0).setWordWrapWidth(215).setLineSpacing(1))
+      pages.push({ title: `특성: ${ti.name}`, lines: [`D 버튼 · 패시브: ${ti.passive}`, '', ti.desc, '', '방어: 상대 반대 방향 · 하단은 앉아서', '대시 →→ · 백스텝 ←← · 공중 대시(공중에서 →→)'] })
+      if (this.setup.stage != null && this.setup.stage < 4) pages[pages.length - 1].lines.push('', '(직급이 오르면 기술이 더 생겨요)')
+      let pi = 0
+      const head = text(this, W / 2, 40, '', 11, COLOR.dim)
+      const colL = text(this, 20, 56, '', 10, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(2)
+      const colR = text(this, W / 2 + 6, 56, '', 10, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(2)
+      colL.setWordWrapWidth(W / 2 - 26); colR.setWordWrapWidth(W / 2 - 26)
+      const show = () => {
+        const p = pages[pi]
+        head.setText(`${p.title}  (${pi + 1}/${pages.length})`)
+        colL.setText(p.lines.slice(0, 10).join('\n')); colR.setText(p.lines.slice(10).join('\n'))
+      }
+      show()
+      this.pauseLayer.add([head, colL, colR])
+      this.pauseLayer.add(button(this, 30, 40, 40, 20, '◀', () => { pi = (pi + pages.length - 1) % pages.length; show() }))
+      this.pauseLayer.add(button(this, W - 30, 40, 40, 20, '▶', () => { pi = (pi + 1) % pages.length; show() }))
       this.pauseLayer.add(button(this, W / 2 - 80, 246, 140, 24, '계속하기', () => this.togglePause(), { color: 0x6a2c91 }))
       this.pauseLayer.add(button(this, W / 2 + 80, 246, 140, 24, '메뉴로', () => this.scene.start('Menu')))
     } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.controls.show(true) }

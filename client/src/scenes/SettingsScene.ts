@@ -22,7 +22,7 @@ export class SettingsScene extends Phaser.Scene {
     text(this, W / 2, 164, [
       '조작법',
       '이동 A D · 점프 W · 앉기 S · 방어 = 상대 반대쪽 방향',
-      'J 약 · K 강 · L Q · I W · O E · U R(필살)',
+      'J A약 · K B강 · L C직업기 · I D특성기 · U R궁극기 · →→ 대시 · ←← 백스텝',
       '태그 모드: Q 교체 · E 어시스트',
       '콤보: 약약약 · 약약강 · 약강강 · 강강 · ↓+약 · ↓+강',
       '약약Q(SP10) · 약강Q(SP25) · 점프 중 약·강 = 점프 공격',

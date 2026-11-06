@@ -1,116 +1,301 @@
 // 상태 기반 AI. 플레이어와 같은 InputState를 만들어 넣습니다(=치트 없음).
-// 상대 기술을 "보고" 반응하는 데 걸리는 시간(react)을 두어 사람처럼 늦게 막습니다.
+// 캐릭터 데이터(기술 칸·커맨드)를 읽어 "지금 거리에서 닿는 기술"을 고르고,
+// 커맨드는 실제 입력 순서(↓→C, 대시 C 등)를 프레임 단위로 흉내 냅니다.
+// 캐릭터마다 선호 거리·특성 사용 습관이 달라 플레이 스타일이 갈립니다.
 import type { Fighter } from './Fighter'
-import type { InputState, Btn } from './types'
+import type { Button, CharacterData, InputState, MoveData, Tok } from './types'
 import { emptyInput } from './types'
-import { aiSkill } from './Traits'
+import { cdKey } from './Traits'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
-const PARAM: Record<Difficulty, { think: number; react: number; guard: number; combo: number; special: number; aggro: number; afterHitGuard: number }> = {
-  //        생각 간격  반응(프레임)  가드 확률  콤보 이어가기  특수기   공격성   맞은 뒤 가드
-  easy:   { think: 34, react: 14, guard: 0.25, combo: 0.2,  special: 0.12, aggro: 0.38, afterHitGuard: 0.15 },
-  normal: { think: 18, react: 9,  guard: 0.6,  combo: 0.6,  special: 0.3,  aggro: 0.6,  afterHitGuard: 0.5 },
-  hard:   { think: 9,  react: 5,  guard: 0.85, combo: 0.95, special: 0.5,  aggro: 0.75, afterHitGuard: 0.8 },
+const PARAM: Record<Difficulty, { think: number; react: number; guard: number; combo: number; special: number; aggro: number; afterHitGuard: number; cmd: number }> = {
+  //        생각 간격  반응(프레임)  가드 확률  이어치기  특성·직업기  공격성  맞은 뒤 가드  커맨드 사용
+  easy:   { think: 32, react: 14, guard: 0.25, combo: 0.2,  special: 0.25, aggro: 0.4,  afterHitGuard: 0.15, cmd: 0.25 },
+  normal: { think: 18, react: 9,  guard: 0.55, combo: 0.55, special: 0.5,  aggro: 0.6,  afterHitGuard: 0.45, cmd: 0.55 },
+  hard:   { think: 9,  react: 5,  guard: 0.8,  combo: 0.9,  special: 0.75, aggro: 0.75, afterHitGuard: 0.75, cmd: 0.85 },
 }
 
-type Plan = 'approach' | 'retreat' | 'wait' | 'attack' | 'guard' | 'jumpIn'
+type Key = keyof InputState
+const BTN_KEY: Record<Button, Key> = { A: 'light', B: 'heavy', C: 'special', D: 'trait', R: 'super' }
+
+/** 입력 스크립트 한 칸: 한 프레임 입력, 또는 "지금 기술이 맞거나 판정이 끝날 때까지 대기" */
+type Inp = Partial<Record<Key | 'fwd' | 'back', boolean>>
+type Frame = { inp: Inp } | { chain: true }
+
+interface Option {
+  id: string                 // 기술 id (칸 또는 커맨드 기술)
+  frames: Frame[]
+  lo: number; hi: number     // 닿는 거리 (몸 중심끼리)
+  setup: boolean             // 피해 없는 설치·버프 기술
+  cmd: boolean
+  air: boolean
+}
+
+/** 선호 거리 (캐릭터별 플레이 스타일) */
+function prefDist(me: Fighter): number {
+  switch (me.char.id) {
+    case 'dp': return [70, 150, 330][me.trait.lens] ?? 150
+    case 'director': return 210
+    case 'sound': return 170
+    case 'gaffer': return 270
+    case 'art': return 150
+    case 'makeup': return me.trait.mode > 0 ? 70 : 110
+    case 'actor': return me.trait.role === 2 ? 120 : 75
+    default: return 110
+  }
+}
+
+/** 기술이 닿는 거리 추정 */
+function reach(m: MoveData, c: CharacterData): { lo: number; hi: number; setup: boolean } {
+  if (m.projectile) {
+    const p = m.projectile
+    if (p.atTarget) return { lo: 0, hi: 9999, setup: false }
+    return { lo: 0, hi: Math.min(1000, p.offsetX + Math.abs(p.vx) * p.life + p.w / 2), setup: false }
+  }
+  const hb = m.hitbox
+  if (hb.w <= 0) return { lo: 0, hi: 9999, setup: true }
+  const travel = (m.dash ?? 0) * (m.startup + m.active * 0.5)
+  const hold = m.hold ? hb.w * (m.hold.reach - 1) * 0.6 : 0
+  const half = c.hurt.w / 2
+  return { lo: Math.max(0, hb.x - half), hi: hb.x + hb.w + travel + hold + half, setup: false }
+}
+
+/** 방향+버튼 칸 → 입력 프레임 */
+function slotFrames(slot: string, btn: Button): Frame[] | null {
+  const k = BTN_KEY[btn]
+  const press = (extra: Inp = {}): Frame[] => [{ inp: { ...extra, [k]: true } }, { inp: { ...extra, [k]: true } }]
+  const dir = slot.split('_')[1] ?? 'n'
+  const jump: Frame[] = [{ inp: { up: true } }, ...Array.from({ length: 9 }, () => ({ inp: {} }))]
+  switch (dir) {
+    case 'n': return press()
+    case 'f': return press({ fwd: true })
+    case 'b': return press({ back: true })
+    case 'u': return press({ up: true })
+    case 'd': return press({ down: true })
+    case 'air': return [...jump, ...press()]
+    case 'aird': return [...jump, ...press({ down: true })]
+    case 'dash': return [{ inp: { fwd: true } }, { inp: {} }, { inp: { fwd: true } }, ...Array.from({ length: 5 }, () => ({ inp: { fwd: true } })), ...press({ fwd: true })]
+    default: return null
+  }
+}
+
+/** 커맨드 토큰 → 입력 프레임 (방향 엣지가 생기도록 사이사이 떼기) */
+function cmdFrames(seq: Tok[], air: boolean): Frame[] {
+  const out: Frame[] = []
+  if (air) out.push({ inp: { up: true } }, ...Array.from({ length: 8 }, () => ({ inp: {} })))
+  let lastDir: string | null = null
+  let lastBtn = false
+  for (let i = 0; i < seq.length; i++) {
+    const t = seq[i]
+    const next = seq[i + 1]
+    const isBtn = t === 'A' || t === 'B' || t === 'C' || t === 'D' || t === 'R'
+    if (isBtn) {
+      if (lastBtn) out.push({ chain: true })
+      const k = BTN_KEY[t as Button]
+      const hold = lastDir ? { [lastDir]: true } : {}
+      out.push({ inp: { ...hold, [k]: true } }, { inp: { ...hold, [k]: true } })
+      lastBtn = true; lastDir = null
+      continue
+    }
+    lastBtn = false
+    const dk = ({ f: 'fwd', b: 'back', u: 'up', d: 'down' } as Record<string, string>)[t]
+    if (dk) {
+      if (lastDir === dk) out.push({ inp: {} })
+      // 바로 뒤가 버튼이면 방향을 누른 채 버튼 (↓+C 등). 위(점프)는 버튼과 같은 프레임에
+      if (dk === 'up' && next && next.length === 1 && 'ABCDR'.includes(next)) { lastDir = 'up'; continue }
+      out.push({ inp: { [dk]: true } })
+      lastDir = dk
+      continue
+    }
+    lastDir = null
+    if (t === 'dash') out.push({ inp: { fwd: true } }, { inp: {} }, { inp: { fwd: true } }, { inp: { fwd: true } }, { inp: { fwd: true } }, { inp: { fwd: true } })
+    else if (t === 'bs') out.push({ inp: { back: true } }, { inp: {} }, { inp: { back: true } }, ...Array.from({ length: 13 }, () => ({ inp: {} })))
+    else if (t === 'jump') out.push({ inp: { up: true } }, ...Array.from({ length: 8 }, () => ({ inp: {} })))
+    else if (t === 'airdash') out.push({ inp: { fwd: true } }, { inp: {} }, { inp: { fwd: true } }, { inp: {} }, { inp: {} })
+  }
+  return out
+}
+
+const optionCache = new WeakMap<CharacterData, Option[]>()
+function optionsFor(c: CharacterData): Option[] {
+  const hit = optionCache.get(c)
+  if (hit) return hit
+  const opts: Option[] = []
+  for (const [id, m] of Object.entries(c.moves)) {
+    if (id.includes('~') || id.startsWith('copy')) continue
+    const btn = id[0] as Button
+    if (!'ABCDR'.includes(btn)) continue
+    const frames = id === 'R' ? slotFrames('R_n', 'R') : slotFrames(id, btn)
+    if (!frames) continue
+    const r = reach(m, c)
+    opts.push({ id, frames, ...r, cmd: false, air: id.endsWith('_air') || id.endsWith('_aird') })
+  }
+  for (const cmd of c.commands) {
+    const m = c.moves[cmd.move]
+    if (!m) continue
+    opts.push({ id: cmd.move, frames: cmdFrames(cmd.seq, !!cmd.air), ...reach(m, c), cmd: true, air: !!cmd.air })
+  }
+  optionCache.set(c, opts)
+  return opts
+}
 
 export class SimpleAI {
-  private plan: Plan = 'wait'
-  private planT = 0
+  private script: Frame[] = []
   private nextThink = 30
-  private press: keyof InputState | null = null
-  private pressT = 0
-  private downWithSpecial = false
+  private guardT = 0
+  private moveT = 0
+  private moveDir: 'fwd' | 'back' | null = null
   private seenOppMove = -1
   private wasHit = false
-  private queue: Btn[] = []
   private readonly p: (typeof PARAM)[Difficulty]
 
-  constructor(readonly difficulty: Difficulty = 'normal') { this.p = PARAM[difficulty] }
+  constructor(readonly difficulty: Difficulty = 'normal', private rng: () => number = Math.random) { this.p = PARAM[difficulty] }
 
   input(me: Fighter, opp: Fighter, frame: number): InputState {
     const inp = emptyInput()
     const dx = opp.x - me.x
     const dist = Math.abs(dx)
-    const toward: 'left' | 'right' = dx > 0 ? 'right' : 'left'
-    const away: 'left' | 'right' = dx > 0 ? 'left' : 'right'
-    const r = Math.random
+    const fwdKey: 'left' | 'right' = dx >= 0 ? 'right' : 'left'
+    const backKey: 'left' | 'right' = dx >= 0 ? 'left' : 'right'
+    const r = this.rng
 
     // 1) 상대 기술을 보고 반응 → 가드 (기술마다 한 번만 판단)
-    const moveStart = opp.frame - opp.moveFrame   // 이 기술이 시작된 프레임 = 기술마다 고유
+    const moveStart = opp.frame - opp.moveFrame
     if (opp.state === 'attack' && opp.move && opp.moveFrame >= this.p.react && this.seenOppMove !== moveStart) {
       this.seenOppMove = moveStart
-      if (dist < 90 && me.neutral && r() < this.p.guard) { this.plan = 'guard'; this.planT = opp.move.startup + opp.move.active + 6 }
+      const rr = reach(opp.move, opp.char)
+      if (dist < rr.hi + 30 && me.neutral && !this.script.length && r() < this.p.guard) this.guardT = opp.move.startup + opp.move.active + 6
     }
-    // 2) 맞고 풀려난 직후 겁먹고 가드
-    if (me.inHitstun) this.wasHit = true
-    else if (this.wasHit) { this.wasHit = false; if (r() < this.p.afterHitGuard) { this.plan = 'guard'; this.planT = 20 } }
+    if (me.inHitstun) { this.wasHit = true; this.script = [] }
+    else if (this.wasHit) { this.wasHit = false; if (r() < this.p.afterHitGuard) this.guardT = 20 }
 
-    // 3) 커맨드 콤보 진행: 지금 기술의 startup이 끝나면 다음 버튼
-    if (this.queue.length && !this.press) {
-      if (me.state === 'attack' && me.move && me.moveFrame >= me.move.startup) {
-        // 헛치면 잘하는 AI일수록 콤보를 멈춤 (헛친 콤보는 반격당하기 쉬움)
-        if (!me.hitConfirmed && me.moveFrame >= me.move.startup + me.move.active && r() < this.p.combo * 0.8) this.queue = []
-        else if (me.hitConfirmed || me.moveFrame >= me.move.startup + me.move.active) this.tapBtn(this.queue.shift()!)
-      }
-      else if (me.state !== 'attack') this.queue = []
-    }
-    if (me.inHitstun) this.queue = []
-    // 3-b) 내 기술이 맞았으면 이어서 캔슬
-    if (!this.queue.length && me.state === 'attack' && me.hitConfirmed && !this.press && r() < this.p.combo / 3) {
-      const next = me.move?.id === 'light' ? (r() < 0.5 ? 'light' : 'heavy') : r() < 0.5 ? 'special' : 'trait'
-      if (next) this.tap(next as keyof InputState)
+    // 2) 내 기술이 맞았으면 이어서 캔슬 (다음 레벨 버튼)
+    if (!this.script.length && me.state === 'attack' && me.hitConfirmed && r() < this.p.combo / 4) {
+      const lvl = me.move?.lvl ?? (me.move?.id.startsWith('A') ? 1 : me.move?.id.startsWith('B') ? 2 : 3)
+      const nextBtn: Button = lvl <= 1 ? (r() < 0.5 ? 'A' : 'B') : lvl === 2 ? (r() < 0.5 ? 'C' : 'D') : me.meter >= 100 && r() < 0.5 ? 'R' : 'C'
+      const k = BTN_KEY[nextBtn]
+      const dir = r() < 0.4 ? { fwd: true } : r() < 0.3 ? { down: true } : {}
+      this.script = [{ inp: { ...dir, [k]: true } }, { inp: { ...dir, [k]: true } }]
     }
 
-    // 4) 평소 판단
-    if (frame >= this.nextThink && me.neutral && this.plan !== 'guard') {
-      const close = dist <= 44
-      this.nextThink = frame + (close ? Math.ceil(this.p.think / 3) : this.p.think) + Math.floor(r() * this.p.think / (close ? 3 : 1))
-      if (dist > 90) this.plan = r() < this.p.aggro ? 'approach' : r() < 0.25 ? 'jumpIn' : 'wait'
-      else if (dist > 44) this.plan = r() < this.p.aggro ? (r() < 0.2 ? 'jumpIn' : 'approach') : r() < 0.35 ? 'retreat' : 'wait'
-      // 붙어 있을 때: 먼저 치거나(공격성), 미리 막거나(가드 확률), 빠지거나
-      else this.plan = r() < this.p.aggro ? 'attack' : r() < this.p.guard ? 'guard' : 'retreat'
-      this.planT = 18 + Math.floor(r() * 24)
-      // 태그 모드: 체력이 낮으면 교대, 가끔 어시스트
-      if (me.team?.canSwap && me.hp / me.maxHp < 0.35 && me.team.partnerHp > 0.5 && r() < 0.3 + this.p.combo * 0.3) { this.tap('swap'); return inp }
-      if (me.team?.canAssist && dist < 150 && r() < 0.08 + this.p.special * 0.2) this.tap('assist')
-      // 캐릭터별 스킬 판단 (잘하는 AI일수록 자주 씀)
-      const sk = r() < 0.1 + this.p.special * 0.4 ? aiSkill(me, opp, r) : null
-      if (sk) { this.tap(sk); this.plan = sk === 'trait' ? 'wait' : this.plan }
-      else if (this.plan === 'attack') {
-        if (me.meter >= 100 && r() < this.p.special) this.tap('super')
-        else if (r() < this.p.combo * 0.45) {
-          const ok = me.char.combos.filter((c) => (me.char.moves[c.move]?.cost ?? 0) <= me.meter)
-          const c = ok[Math.floor(r() * ok.length)]
-          if (c) { this.queue = [...c.seq]; this.tapBtn(this.queue.shift()!) } else this.tap('light')
-        }
-        else this.tap(r() < 0.6 ? 'light' : 'heavy')
+    // 3) 평소 판단
+    if (frame >= this.nextThink && me.neutral && this.guardT <= 0 && !this.script.length) {
+      const pref = prefDist(me)
+      this.nextThink = frame + this.p.think + Math.floor(r() * this.p.think)
+      // 태그 모드
+      if (me.team?.canSwap && me.hp / me.maxHp < 0.35 && me.team.partnerHp > 0.5 && r() < 0.3 + this.p.combo * 0.3) { inp.swap = true; return inp }
+      if (me.team?.canAssist && dist < 260 && r() < 0.08 + this.p.special * 0.15) inp.assist = true
+      const pick = this.pickOption(me, opp, dist, pref)
+      if (pick && r() < this.p.aggro + 0.15) this.script = [...pick.frames]
+      else {
+        // 거리 조절: 선호 거리로
+        this.moveT = 14 + Math.floor(r() * 20)
+        if (dist > pref + 50) this.moveDir = 'fwd'
+        else if (dist < pref - 50) this.moveDir = 'back'
+        else this.moveDir = r() < 0.3 ? 'fwd' : r() < 0.2 ? 'back' : null
+        // 멀면 달리기(→→), 원거리 캐릭터가 붙으면 백스텝(←←)
+        if (this.moveDir === 'fwd' && dist > pref + 220 && r() < 0.5) this.script = [{ inp: { fwd: true } }, { inp: {} }, { inp: { fwd: true } }]
+        if (this.moveDir === 'back' && pref > 150 && dist < 90 && r() < 0.4) this.script = [{ inp: { back: true } }, { inp: {} }, { inp: { back: true } }]
+        if (this.moveDir === 'fwd' && r() < 0.12) this.script = [{ inp: { up: true, fwd: true } }]
       }
     }
 
-    switch (this.plan) {
-      case 'approach': inp[toward] = true; if (dist < 40) this.plan = 'wait'; break
-      case 'retreat': inp[away] = true; break
-      // 방어 = 상대 반대쪽 누르기 (하단기는 잘하는 AI만 앉아서)
-      case 'guard': inp[away] = true; if (opp.move?.low && this.p.guard > 0.7) inp.down = true; break
-      case 'jumpIn': inp.up = true; inp[toward] = true; this.plan = 'wait'; break
-      default: break
+    // 4) 출력
+    if (this.guardT > 0) { this.guardT--; inp[backKey] = true; if (opp.move?.low && this.p.guard > 0.7) inp.down = true; return inp }
+    if (this.script.length) {
+      const f = this.script[0]
+      if ('chain' in f) {
+        // 체인: 지금 기술이 맞았거나 판정이 끝나면 다음 버튼
+        const m = me.move
+        if (me.state !== 'attack' || !m) { this.script = []; return inp }
+        if (!me.hitConfirmed && me.moveFrame >= m.startup + m.active && r() < this.p.combo * 0.6) { this.script = []; return inp }
+        if (me.hitConfirmed || me.moveFrame >= m.startup + m.active) this.script.shift()
+        return inp
+      }
+      this.script.shift()
+      for (const [k, v] of Object.entries(f.inp)) {
+        if (!v) continue
+        if (k === 'fwd') inp[fwdKey] = true
+        else if (k === 'back') inp[backKey] = true
+        else inp[k as Key] = true
+      }
+      return inp
     }
-    if (--this.planT <= 0) this.plan = 'wait'
-
-    if (this.press) {
-      inp[this.press] = this.pressT % 2 === 0
-      if (this.downWithSpecial) inp.down = true
-      if (--this.pressT <= 0) { this.press = null; this.downWithSpecial = false }
-    }
+    if (this.moveT > 0 && this.moveDir) { this.moveT--; inp[this.moveDir === 'fwd' ? fwdKey : backKey] = true }
     return inp
   }
 
-  private tap(k: keyof InputState) { this.press = k; this.pressT = 2 }
-  private tapBtn(b: Btn) {
-    const k = ({ L: 'light', H: 'heavy', S: 'special', X: 'super' } as const)[b.replace('d', '') as 'L' | 'H' | 'S' | 'X']
-    this.tap(k); this.downWithSpecial = b.startsWith('d')
+  /** 지금 거리에서 쓸 기술 고르기 (점수 = 피해 × 거리 적합 × 캐릭터 습관) */
+  private pickOption(me: Fighter, opp: Fighter, dist: number, pref: number): Option | null {
+    const r = this.rng
+    let best: Option | null = null
+    let bestS = 0
+    for (const o of optionsFor(me.char)) {
+      if (o.cmd && r() > this.p.cmd) continue
+      const id = me.world ? me.world.remapMove(me, o.id) : o.id
+      const m = me.char.moves[id]
+      if (!m) continue
+      if (m.cost && me.meter < m.cost) continue
+      if ((me.cds[cdKey(m.id)] ?? 0) > 0) continue
+      if (me.world && !me.world.canUse(me, m)) continue
+      const rr = o.id === id ? o : { ...o, ...reach(m, me.char) }
+      let s: number
+      if (rr.setup) s = 26 * this.p.special
+      else {
+        const airAdj = o.air ? me.char.airSpeed * 9 : 0
+        if (dist < rr.lo || dist > rr.hi + airAdj) continue
+        s = (m.damage + (m.projectile?.damage ?? 0) + 20) * (o.cmd ? 1.25 : 1)
+        if (dist < 70 && m.startup > 14) s *= 0.4
+        if (m.ult) s *= 3
+        if (m.id.startsWith('C') || m.id.startsWith('D')) s *= 0.5 + this.p.special
+      }
+      s *= this.habit(me, opp, m, dist, pref)
+      s *= 0.5 + r()
+      if (s > bestS) { bestS = s; best = o }
+    }
+    return best
+  }
+
+  /** 캐릭터별 특성 사용 습관 */
+  private habit(me: Fighter, opp: Fighter, m: MoveData, dist: number, pref: number): number {
+    const e = m.effect
+    const t = me.trait
+    switch (me.char.id) {
+      case 'dp':
+        if (e === 'lensTele') return dist > 230 && t.lens !== 2 ? 6 : 0
+        if (e === 'lensWide') return dist < 110 && t.lens !== 0 ? 5 : 0
+        if (e === 'lensStd') return dist >= 110 && dist <= 230 && t.lens !== 1 ? 3 : 0
+        if (e === 'lens') return 0
+        return 1
+      case 'director':
+        if (e === 'action') return t.traps.some((x) => Math.abs(x - opp.x) < 44) ? 8 : 0.4
+        if (e && /^trap|extra/.test(e)) return t.traps.length + (me.world?.extras.filter((x) => x.owner === me.idx).length ?? 0) < 2 ? 3 : 0.5
+        if (e === 'parry') return 0.3
+        return 1
+      case 'art': {
+        const n = (me.world?.walls.filter((w) => w.owner === me.idx).length ?? 0) + (me.world?.boxes.filter((b) => b.owner === me.idx).length ?? 0)
+        if (e && ['applebox', 'platform', 'airPlatform', 'wall', 'sofa', 'stairs', 'scaffold', 'barricade'].includes(e)) return n < 3 ? (dist > pref ? 3 : 1.2) : 0.2
+        if (e === 'setBlast' || e === 'collapse') return n >= 2 ? 3 : 0.5
+        return 1 + n * 0.1
+      }
+      case 'makeup':
+        if (e === 'transform') return me.hp / me.maxHp < 0.6 && t.mode === 0 ? 5 : 0.2
+        if (m.debuff) return 1.6
+        return 1
+      case 'gaffer':
+        if (e === 'blinkBack') return dist < 90 ? 4 : 0.2
+        if (e === 'blinkFwd') return dist > 300 ? 2 : 0.3
+        return m.projectile || m.vfx === 'laser' ? 1.5 : dist < 90 ? 1 : 0.6
+      case 'sound':
+        if (e === 'soundover') return t.res >= 60 ? 4 : 0.3
+        return m.vfx === 'pole' ? 1.5 : 1
+      case 'actor':
+        if (e === 'role') return 0.6
+        if (e === 'improv') return 2
+        if (m.copyOf) return 2
+        return 1
+    }
+    return 1
   }
 }

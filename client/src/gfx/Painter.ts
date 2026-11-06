@@ -564,6 +564,29 @@ export function paintProjectile(kind: string): HTMLCanvasElement {
       for (let x = -8; x <= 4; x++) { g.set(cx + x, cy - 1, '#bae6fd', 2); g.set(cx + x, cy + 1, '#bae6fd', 2) }
       g.disc(cx + 6, cy, 3, '#ffffff'); g.disc(cx + 6, cy, 1, '#fef9c3')
       break
+    case 'shout': // 명대사·외침: 글자 충격파
+      for (let r = 4; r <= 14; r += 5) for (let a = -1.2; a <= 1.2; a += 0.06) g.set(cx - 8 + Math.cos(a) * r, cy + Math.sin(a) * r * 1.3, r >= 14 ? '#f472b6' : '#fff8e7', 2)
+      g.rect(cx + 6, cy - 5, 2, 7, '#fff8e7'); g.rect(cx + 6, cy + 3, 2, 2, '#fff8e7')
+      break
+    case 'brush': // 분장 붓 (빙글빙글 날아감)
+      g.rect(cx - 8, cy - 1, 10, 2, '#a16207'); g.rect(cx + 2, cy - 2, 3, 4, '#d4d4d8')
+      for (let k = 0; k < 4; k++) g.rect(cx + 5 + k, cy - 2 + (k % 2), 1, 4 - (k % 2), '#be123c')
+      g.shadeAll(); g.outline()
+      break
+    case 'plywood': // 합판 (회전하며 날아감)
+      g.rect(cx - 9, cy - 6, 18, 12, '#d6a35c'); for (let k = 0; k < 3; k++) g.rect(cx - 8, cy - 4 + k * 4, 16, 1, '#b07a3a')
+      g.shadeAll(); g.outline()
+      break
+    case 'debris': // 세트 파편
+      g.rect(cx - 5, cy - 4, 8, 6, '#b07a3a'); g.rect(cx + 2, cy, 5, 4, '#9ca3af'); g.rect(cx - 7, cy + 1, 3, 3, '#d6a35c')
+      g.shadeAll(); g.outline()
+      break
+    case 'extra': // 와이어에 매달린 엑스트라 (팔 벌리고 날아감)
+      g.disc(cx + 4, cy - 10, 3, '#f1c27d'); g.rect(cx - 2, cy - 7, 8, 8, '#64748b')
+      g.rect(cx - 8, cy - 6, 6, 2, '#64748b'); g.rect(cx + 6, cy - 8, 6, 2, '#64748b')
+      g.rect(cx - 1, cy + 1, 2, 6, '#334155'); g.rect(cx + 3, cy + 1, 2, 5, '#334155')
+      g.shadeAll(); g.outline()
+      break
     case 'beam': // 풀파워 조명 빛기둥
       for (let y = 0; y < 66; y++) for (let x = -7; x <= 7; x++) if (Math.abs(x) < 7 - (y % 7 === 0 ? 1 : 0)) g.set(cx + x, 74 - y - 8, Math.abs(x) < 3 ? '#ffffff' : '#fef08a', 2)
       break

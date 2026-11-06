@@ -1,59 +1,100 @@
-// 캐릭터 6명 점검: 데이터·동작·직급·스테이지 순서·밸런스
+// 캐릭터 7명 점검: 데이터·동작·직급·스테이지 순서·밸런스
 import { describe, expect, it, vi } from 'vitest'
 import { Match } from '../src/core/Match'
 import { CHARACTERS, atRank, getCharacter } from '../src/config/characters'
 import { STAGES, opponentFor } from '../src/config/stages'
-import { animsFor } from '../src/gfx/charPoses'
+import { animsFor, animOf } from '../src/gfx/charPoses'
 import { SimpleAI } from '../src/core/AI'
 import { emptyInput, type InputState } from '../src/core/types'
 
 describe('캐릭터 데이터', () => {
-  it('7명 모두 기본기·Q·W·E·R·점프 공격·콤보 8개를 가지고, 쓰는 동작이 다 있다', () => {
+  it('7명 모두 방향×버튼 칸·궁극기·고유 커맨드 10개 이상, 쓰는 동작이 다 있다', () => {
     expect(CHARACTERS.length).toBe(7)
     for (const c of CHARACTERS) {
-      for (const id of ['light', 'heavy', 'jl', 'jh', 'special1', 'special2', 'trait', 'super']) expect(c.moves[id], `${c.id}.${id}`).toBeTruthy()
-      expect(c.combos.length, c.id).toBe(8)
-      for (const k of c.combos) expect(c.moves[k.move], `${c.id} combo ${k.move}`).toBeTruthy()
+      for (const id of ['A_n', 'B_n', 'C_n', 'D_n', 'R', 'A_air', 'B_air']) expect(c.moves[id], `${c.id}.${id}`).toBeTruthy()
+      expect(c.moves.R!.ult, `${c.id} R ult`).toBeTruthy()
+      expect(c.commands.length, c.id).toBeGreaterThanOrEqual(10)
+      // 절반 이상은 이동 입력(방향·대시·백스텝·점프)이 섞인 커맨드
+      const motion = c.commands.filter((k) => k.air || k.seq.some((t) => !'ABCDR'.includes(t)))
+      expect(motion.length * 2, `${c.id} 이동 섞인 커맨드`).toBeGreaterThanOrEqual(c.commands.length)
+      for (const k of c.commands) expect(c.moves[k.move], `${c.id} cmd ${k.move}`).toBeTruthy()
       const A = animsFor(c.id)
-      for (const m of Object.values(c.moves)) expect(A[m.anim ?? m.id], `${c.id}.${m.id} anim ${m.anim}`).toBeTruthy()
+      for (const m of Object.values(c.moves)) expect(A[animOf(m)], `${c.id}.${m.id} anim ${animOf(m)}`).toBeTruthy()
       expect(c.titles.length).toBe(5)
+      expect(c.showcase.length).toBeGreaterThan(0)
+      for (const id of c.showcase) expect(c.moves[id], `${c.id} showcase ${id}`).toBeTruthy()
     }
   })
-  it('촬영감독 외에는 공격·스킬 동작이 전용 동작', () => {
-    const dp = animsFor('dp')
-    for (const c of CHARACTERS) if (c.id !== 'dp') for (const id of ['light', 'heavy', 'special1', 'super', 'upper', 'zoompunch', 'spin', 'rush', 'sweep']) {
-      const name = c.moves[id]!.anim ?? id
-      expect(animsFor(c.id)[name], `${c.id} 전용 ${id}`).not.toBe(dp[name])
+  it('같은 입력이 캐릭터마다 다른 기술 (커맨드 이름이 겹치지 않음)', () => {
+    const seen = new Map<string, string>()
+    for (const c of CHARACTERS) for (const k of c.commands) {
+      const name = c.moves[k.move]!.name
+      expect(seen.get(name), `${c.id} ${name}`).toBeUndefined()
+      seen.set(name, c.id)
     }
   })
-  it('모든 캐릭터의 Q·W·E가 실제로 나간다 (조건이 필요한 건 채워 줌)', () => {
-    for (const c of CHARACTERS) for (const [inp, slot] of [[{ special: true }, 'special1'], [{ skill2: true }, 'special2'], [{ trait: true }, 'trait']] as const) {
+  it('모든 캐릭터의 C·D가 실제로 나간다 (조건이 필요한 건 채워 줌)', () => {
+    for (const c of CHARACTERS) for (const [inp, slot] of [[{ special: true }, 'C'], [{ trait: true }, 'D']] as const) {
       const m = new Match(c, getCharacter('dp'))
       for (let i = 0; i < 90; i++) m.step([emptyInput(), emptyInput()])
       const f = m.fighters[0]
-      f.trait.res = 100; f.trait.traps = [f.x + 40]; f.trait.lastSeen = 'dp:special1'; f.meter = 100
+      f.trait.res = 100; f.trait.traps = [f.x + 40]; f.trait.lastSeen = 'dp:C_n'; f.meter = 100
+      m.world.boxes.push({ owner: 0, x: f.x + 30, y: 0, w: 24, h: 18, hp: 3, t: 999 })
       m.fighters[1].x = f.x + 60
       const moves: string[] = []
       for (let i = 0; i < 40; i++) for (const e of m.step([i === 0 ? { ...emptyInput(), ...inp } : emptyInput(), emptyInput()])) if (e.type === 'move' && e.fighter === 0) moves.push(e.move)
       expect(moves.length, `${c.id} ${slot}`).toBeGreaterThan(0)
     }
   })
+  it('모든 고유 커맨드가 실제 입력으로 나간다', () => {
+    const keyOf = { A: 'light', B: 'heavy', C: 'special', D: 'trait', R: 'super' } as const
+    for (const c of CHARACTERS) for (const k of c.commands) {
+      const m = new Match(c, getCharacter('dp'))
+      for (let i = 0; i < 90; i++) m.step([emptyInput(), emptyInput()])
+      const f = m.fighters[0]
+      f.trait.res = 100; f.trait.traps = [f.x + 40]; f.meter = 100
+      m.world.extras.push({ owner: 0, x: f.x + 30, y: 0, vx: 0, vy: 0, t: 999, cd: 99, lunge: 0, hit: false })
+      m.fighters[1].x = f.x + 90
+      // 토큰 → 프레임 입력 (오른쪽이 앞)
+      const frames: Partial<InputState>[] = []
+      if (k.air) frames.push({ up: true }, ...Array(8).fill({}))
+      for (let i = 0; i < k.seq.length; i++) {
+        const t = k.seq[i]
+        if (t in keyOf) {
+          const prev = k.seq[i - 1]
+          const hold: Partial<InputState> = prev === 'u' ? { up: true } : prev === 'd' ? { down: true } : prev === 'f' ? { right: true } : prev === 'b' ? { left: true } : {}
+          frames.push({ ...hold, [keyOf[t as keyof typeof keyOf]]: true })
+          // 체인: 앞 기술이 끝날 무렵까지 기다림 (헛쳐도 이어짐)
+          if (k.seq[i + 1] && k.seq[i + 1] in keyOf) frames.push(...Array(16).fill({}))
+        } else if (t === 'f') frames.push({ right: true })
+        else if (t === 'b') frames.push({ left: true })
+        else if (t === 'd') frames.push(k.seq[i - 1] === 'd' ? {} : { down: true }, ...(k.seq[i - 1] === 'd' ? [{ down: true }] : []))
+        else if (t === 'u') { if (!(k.seq[i + 1] in keyOf)) frames.push({ up: true }) }
+        else if (t === 'dash') frames.push({ right: true }, {}, { right: true }, { right: true }, { right: true })
+        else if (t === 'bs') frames.push({ left: true }, {}, { left: true }, ...Array(14).fill({}))
+        else if (t === 'jump') frames.push({ up: true }, ...Array(8).fill({}))
+        else if (t === 'airdash') frames.push({ right: true }, {}, { right: true }, {})
+      }
+      const moves: string[] = []
+      for (let i = 0; i < frames.length + 30; i++) for (const e of m.step([{ ...emptyInput(), ...(frames[i] ?? {}) }, emptyInput()])) if (e.type === 'move' && e.fighter === 0) moves.push(e.move)
+      expect(moves, `${c.id} ${k.seq.join(' ')} → ${k.move}`).toContain(k.move)
+    }
+  })
 })
 
 describe('스테이지 모드 직급', () => {
-  it('막내는 W·R이 없고, 서드에 W, 퍼스트에 R, 감독은 전부', () => {
+  it('막내는 기본기·C_n·D_n만, 퍼스트부터 궁극기, 감독은 전부', () => {
     for (const c of CHARACTERS) {
       const m0 = atRank(c, 0)
-      expect(m0.moves.super, c.id).toBeUndefined()
-      expect(m0.moves.special2, c.id).toBeUndefined()
-      expect(m0.moves.special1 && m0.moves.trait && m0.moves.light).toBeTruthy()
-      expect(atRank(c, 1).moves.special2, c.id).toBeTruthy()
-      expect(atRank(c, 2).moves.super).toBeUndefined()
-      expect(atRank(c, 3).moves.super).toBeTruthy()
+      expect(m0.moves.R, c.id).toBeUndefined()
+      expect(m0.moves.A_n && m0.moves.C_n && m0.moves.D_n).toBeTruthy()
+      expect(Object.keys(atRank(c, 1).moves).length).toBeGreaterThan(Object.keys(m0.moves).length)
+      expect(atRank(c, 2).moves.R).toBeUndefined()
+      expect(atRank(c, 3).moves.R).toBeTruthy()
       expect(Object.keys(atRank(c, 4).moves).length).toBe(Object.keys(c.moves).length)
     }
   })
-  it('막내는 필살 버튼을 눌러도 아무것도 안 나간다', () => {
+  it('막내는 궁극기 버튼을 눌러도 아무것도 안 나간다', () => {
     const m = new Match(atRank(getCharacter('dp'), 0), getCharacter('dp'))
     for (let i = 0; i < 90; i++) m.step([emptyInput(), emptyInput()])
     m.fighters[0].meter = 100

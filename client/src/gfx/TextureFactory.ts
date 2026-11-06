@@ -39,7 +39,7 @@ export const COSTUMES: Record<string, Costume> = {
 
 /** 텍스처 키 → 캐릭터 id (dp_alt → dp) */
 const charOf = (key: string) => key.replace(/_(alt|boss)$/, '')
-export const PROJECTILE_KINDS = ['lightstand', 'cut', 'wave', 'script', 'bulb', 'paint', 'spray', 'beam', 'snipe']
+export const PROJECTILE_KINDS = ['lightstand', 'cut', 'wave', 'script', 'bulb', 'paint', 'spray', 'beam', 'snipe', 'shout', 'brush', 'plywood', 'debris', 'extra']
 
 export function animKey(tex: string, anim: string) { return `${tex}_${anim}` }
 

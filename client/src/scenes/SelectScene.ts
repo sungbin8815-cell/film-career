@@ -2,6 +2,7 @@
 // vsai: 1대1 (내 캐릭터 → CPU) / tag: 2대2 (내 2명 → CPU 2명) / view: 캐릭터 정보
 import Phaser from 'phaser'
 import { CHARACTERS } from '../config/characters'
+import { animsFor, animOf } from '../gfx/charPoses'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
 import { FH, FOOT_Y } from '../gfx/Painter'
 import { button, text, COLOR, type Btn } from '../ui/widgets'
@@ -12,6 +13,7 @@ import { TRAIT_INFO } from '../core/Traits'
 type Mode = 'vsai' | 'tag' | 'view'
 
 export class SelectScene extends Phaser.Scene {
+  private previewEv?: Phaser.Time.TimerEvent
   private mode: Mode = 'vsai'
   /** 지금까지 고른 캐릭터 순서: 1대1 [나, CPU], 태그 [나1, 나2, CPU1, CPU2] */
   private picks: number[] = []
@@ -118,11 +120,27 @@ export class SelectScene extends Phaser.Scene {
     L.add(text(this, x0 + 104, 120, c.desc, 11, COLOR.ink).setWordWrapWidth(208).setAlign('center'))
     const m = c.moves
     const lines = [
-      `패시브: ${ti.passive}`,
-      `Q ${m.special1?.name}   W ${m.special2?.name}`,
-      `E ${ti.name}   R ${m.super?.name}`,
+      `${c.style}  ·  난이도 ${'★'.repeat(c.difficulty)}${'☆'.repeat(3 - c.difficulty)}`,
+      `D 특성: ${ti.name} — ${ti.passive}`,
+      `대표기: ${c.showcase.map((id) => m[id]?.name).filter(Boolean).join(' · ')}`,
+      `R ${m.R?.name ?? ''}`,
     ]
-    L.add(text(this, x0 + 2, 148, lines.join('\n'), 11, '#5eead4', 0).setOrigin(0, 0).setWordWrapWidth(212).setLineSpacing(1))
+    L.add(text(this, x0 + 2, 146, lines.join('\n'), 10, '#5eead4', 0).setOrigin(0, 0).setWordWrapWidth(212).setLineSpacing(1))
+    // 미리보기: 대표 기술 동작을 차례로 재생
+    const anims = animsFor(c.id)
+    const seq = c.showcase.map((id) => m[id]).filter((x) => !!x).map((x) => animOf(x!)).filter((a) => anims[a])
+    let si = 0
+    const playNext = () => {
+      if (!spr.active) return
+      const a = seq[si++ % Math.max(1, seq.length)]
+      if (!a) return
+      const n = anims[a].frames.length
+      let k = 0
+      const ev = this.time.addEvent({ delay: 110, repeat: n + 3, callback: () => { if (!spr.active) { ev.remove(); return } spr.anims.stop(); spr.setFrame(`${a}_${Math.min(k++, n - 1)}`); if (k > n + 2) spr.play(animKey(skin, 'idle')) } })
+    }
+    this.previewEv?.remove()
+    this.previewEv = this.time.addEvent({ delay: 1400, loop: true, callback: playNext })
+    playNext()
   }
 }
 

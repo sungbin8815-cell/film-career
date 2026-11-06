@@ -23,11 +23,14 @@ export interface Projectile extends ProjectileSpec {
   y: number
   age: number
   dead: boolean
+  /** 관통 투사체: 맞힌 횟수, 다음 판정까지 남은 프레임 */
+  hits: number
+  hitCd: number
 }
 
 export const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 
-const emptyAssistInput: InputState = { left: false, right: false, up: false, down: false, light: false, heavy: false, special: false, guard: false, super: false, trait: false, skill2: false, swap: false, assist: false }
+const emptyAssistInput: InputState = { left: false, right: false, up: false, down: false, light: false, heavy: false, special: false, guard: false, super: false, trait: false, swap: false, assist: false }
 
 export class Match {
   fighters: [Fighter, Fighter]
@@ -43,6 +46,8 @@ export class Match {
   events: MatchEvent[] = []
   frame = 0
   world: TraitWorld
+  /** 떠 있는 발판 (스테이지별) */
+  platforms: { x: number; y: number; w: number }[] = []
 
   teams: [Team, Team]
   readonly tag: boolean
@@ -79,7 +84,7 @@ export class Match {
     cur.x = -200; cur.vx = 0; cur.vy = 0; cur.y = 0; cur.move = null; if (cur.hp > 0) cur.setState('idle')
     t.active = t.members.indexOf(next)
     this.fighters[i] = next
-    if (tagCombo) next.forceMove('jh')
+    if (tagCombo) next.forceMove('B_air')
     t.swapCd = SWAP_CD
     this.events.push({ type: 'tag', team: i, kind: forced ? 'in' : 'swap', name: next.char.name })
   }
@@ -93,9 +98,9 @@ export class Match {
     p.x = Math.max(20, Math.min(STAGE_W - 20, cur.x - cur.facing * 26)); p.y = 0; p.vx = 0; p.vy = 0
     p.facing = opp.x >= p.x ? 1 : -1
     p.setState('idle'); p.invuln = 999; p.floorY = 0
-    const id = this.world.remapMove(p, p.char.assist ?? 'special1')
+    const id = this.world.remapMove(p, p.char.assist ?? 'C_n')
     const mv = p.char.moves[id]
-    if (!(mv && this.world.canUse(p, mv) && p.forceMove(id))) p.forceMove('heavy')
+    if (!(mv && this.world.canUse(p, mv) && p.forceMove(id))) p.forceMove('B_n')
     t.assist = p; t.assistCd = ASSIST_CD
     this.events.push({ type: 'tag', team: i, kind: 'assist', name: p.char.name })
   }
@@ -154,7 +159,7 @@ export class Match {
     this.phaseFrame++
     if (this.hitstop > 0) {
       this.hitstop--
-      this.fighters[0].observe(inputs[0]); this.fighters[1].observe(inputs[1])
+      this.fighters[0].observe(inputs[0], this.fighters[1]); this.fighters[1].observe(inputs[1], this.fighters[0])
       return this.events
     }
 
@@ -171,7 +176,7 @@ export class Match {
       for (const e of f.pendingEvents) {
         const m = f.char.moves[e.move]!
         this.events.push({ type: 'move', fighter: f.idx, move: e.move, name: m.name, combo: !!m.combo, voice: m.voice, sfx: m.sfx, afterimage: m.afterimage })
-        if (e.move === 'super') { this.events.push({ type: 'super', fighter: f.idx }); this.hitstop = 24 }
+        if (m.ult) { this.events.push({ type: 'super', fighter: f.idx }); this.hitstop = 24 }
       }
       f.pendingEvents = []
       // 투사체는 판정 프레임에 (수정된 기술 기준: 렌즈·크리티컬 등 반영)
@@ -337,7 +342,17 @@ export class Match {
 
   spawnProjectile(f: Fighter, p: ProjectileSpec, name: string) {
     const d = f.dmgMul
-    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x: f.x + f.facing * p.offsetX, y: p.startY, age: 0, dead: false, vx: p.vx * f.facing })
+    const o = this.fighters[1 - f.idx]
+    const x = p.atTarget ? o.x + f.facing * p.offsetX : f.x + f.facing * p.offsetX
+    const y = p.atTarget ? o.y + p.startY : p.startY
+    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x, y, age: 0, dead: false, vx: p.vx * f.facing, hits: 0, hitCd: 0 })
+  }
+
+  /** 지정 위치에서 투사체 생성 (세트 파편·머리 위 낙하 등) */
+  spawnAt(owner: number, x: number, y: number, p: ProjectileSpec, name: string) {
+    const f = this.fighters[owner]
+    const d = f.dmgMul
+    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner, x, y, age: 0, dead: false, hits: 0, hitCd: 0 })
   }
 
   private updateProjectiles() {
@@ -354,9 +369,13 @@ export class Match {
       const att = this.fighters[p.owner]
       if (def.invuln > 0 || def.hp <= 0) continue
       const box = { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }
-      if (p.y > 0 && this.canJuggle(def, false) && overlap(box, def.hurtbox())) {
-        p.dead = true
-        this.resolve(att, def, { ...p, meterGain: 6 }, p.x - p.vx * 4)
+      if (p.hitCd > 0) p.hitCd--
+      if (p.y > 0 && p.hitCd <= 0 && this.canJuggle(def, false) && overlap(box, def.hurtbox())) {
+        p.hits++
+        if (!p.pierce || p.hits >= (p.multiHit ?? 1)) p.dead = true
+        else p.hitCd = 10
+        const { multiHit: _m, ...spec } = p
+        this.resolve(att, def, { ...spec, meterGain: 6 }, p.x - p.vx * 4)
       }
       if (p.y <= 0) p.vy = 0
     }

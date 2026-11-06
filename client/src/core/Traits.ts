@@ -1,11 +1,11 @@
-// 캐릭터 고유 시스템 (패시브 · 고유 게이지 · 스킬 효과). LoL 챔피언처럼 캐릭터마다 싸우는 방식이 다릅니다.
-//  촬영 lens   : 렌즈 교체(E) — 광각 러시(빠름·이속↑·약 3연타) / 표준 / 망원 저격(가만히 있으면 초점↑, 가득 차면 크리티컬). Q·W가 렌즈마다 다른 기술
-//  연출 mark   : 콘티(Q, 밟으면 묶임) · NG!(W, 받아치기) · 큐 사인(E, 콘티 폭발) · 리테이크(R, 상대를 2초 전 자리로 되돌리고 멈춤)
-//  사운드 rec  : 패시브 게인 업(맞고 막을수록 게이지↑) · 리버브(맞힌 뒤 잔향 추가 피해) · 노이즈 월(W) · SOUND OVER(E, 게이지 방출)
-//  조명 light  : 패시브 노출(빛 기술이 쌓이면 상대 기절) · 키라이트(Q) · 백라이트(W, 끌어오기) · 팔로우 스폿(E, 따라다니며 노출)
-//  미술 wall   : 패시브 제작 포인트 · 애플박스(Q, 발판) · 페이크 월(W) · 소파 드롭(E) · 세트 체인지(R, 구조물 폭파)
-//  분장 makeup : 패시브 분장막(피해 흡수) · 베이스(Q, 충전) · 파우더 블라인드(W) · 클렌징(E, 분장막 전부 폭발)
-//  배우 copy   : 패시브 관찰(상대 스킬을 두 번 보면 Q·W 칸에 복사) · 스턴트 구르기 · 즉흥 연기(E, 바로 복사) · 명연기(R, 상대 필살)
+// 캐릭터 고유 시스템. 특성을 빼면 캐릭터가 성립하지 않도록, 싸우는 방식 자체를 여기서 만듭니다.
+//  촬영 lens   : 광각(초근접 러시)·표준(중거리)·망원(완전 원거리 저격). 렌즈마다 기술이 통째로 바뀜, 망원 초점 → 크리티컬
+//  연출 mark   : 설치·소환 사령관. 콘티(덫)·엑스트라 소환, "액션!"으로 전부 동시에 발동, 점프컷·NG!
+//  사운드 rec  : 여의봉 붐(모으면 화면 절반) + 맞고 막을수록 사운드 게이지, 방출·우퍼 장판·피드백 기둥, 리버브
+//  조명 light  : 빛 마법사. 레이저·반사판·암전 블링크·스폿·젤, 노출 100 → 기절
+//  미술 wall   : 건축가. 애플박스·공중 발판·세트벽·소파, 구조물이 많을수록 강해짐, 세트 폭파
+//  분장 makeup : 분장막(피해 흡수) + 상태이상(상처·노인·파우더) + 크리처 변신 모드
+//  배우 copy   : 상대 기술·커맨드 복사 + 배역 전환(액션·사극·호러)
 import type { Fighter } from './Fighter'
 import type { MatchEvent, MoveData, ProjectileSpec } from './types'
 import { STAGE_W } from './types'
@@ -13,274 +13,332 @@ import { STAGE_W } from './types'
 export type TraitId = 'lens' | 'mark' | 'rec' | 'light' | 'wall' | 'makeup' | 'copy'
 
 export const LENSES = [
-  { name: '광각 24mm', short: '24mm' },
-  { name: '표준 50mm', short: '50mm' },
-  { name: '망원 135mm', short: '135mm' },
+  { name: '광각 24mm', short: '24mm', tag: 'wide' },
+  { name: '표준 50mm', short: '50mm', tag: '' },
+  { name: '망원 135mm', short: '135mm', tag: 'tele' },
+] as const
+export const ROLES = [
+  { name: '액션 배우', tag: '' },
+  { name: '사극 배우', tag: 'sageuk' },
+  { name: '호러 배우', tag: 'horror' },
 ] as const
 
-/** 고유 버튼(E)·패시브 설명 (기술표·HUD용) */
+/** 특성 설명 (기술표·HUD·선택 화면) */
 export const TRAIT_INFO: Record<TraitId, { name: string; button: string; gauge: string; desc: string; passive: string }> = {
-  lens: { name: '렌즈 교체', button: '렌즈', gauge: '초점', passive: '렌즈마다 Q·W가 바뀜',
-    desc: '광각: 빠르고 이동속도 +20%, 약 3연타 · 망원: 사거리 +14, 피해 +20%. 망원으로 가만히 있으면 초점이 차고, 가득 찬 뒤 첫 공격은 크리티컬(×1.6)' },
-  mark: { name: '큐 사인', button: '큐', gauge: '콘티', passive: 'Q 콘티(최대 3개)를 밟으면 묶임',
-    desc: '깔아 둔 콘티를 한꺼번에 터뜨려 띄움. W NG!는 받아치기, R 리테이크는 상대를 2초 전 자리로 되돌리고 멈춤' },
-  rec: { name: 'SOUND OVER', button: 'OVER', gauge: '사운드', passive: '맞고 막을수록 게이지↑, 맞힌 공격은 잔향(리버브) 추가 피해, 강공격 슈퍼아머',
-    desc: '사운드 게이지(30 이상)를 한 번에 방출: 많이 모을수록 범위·피해가 커지고 70 이상이면 띄움' },
-  light: { name: '팔로우 스폿', button: '스폿', gauge: '노출', passive: '빛 기술을 맞히면 상대 노출↑, 100이 되면 눈부셔 기절',
-    desc: '4초 동안 스폿 조명이 상대를 따라다니며 노출을 쌓음 (막고 있으면 안 쌓임). Q 키라이트, W 백라이트(끌어오기)' },
-  wall: { name: '소파 드롭', button: '소파', gauge: '제작', passive: '때리고 맞을수록 제작 포인트↑ (구조물 비용). 애플박스 위에서는 공격력 +15%·하단 회피',
-    desc: '상대 머리 위로 소파 낙하 (제작 50). Q 애플박스(25), W 페이크 월(35), R 세트 체인지로 구조물 폭파' },
-  makeup: { name: '클렌징', button: '클렌징', gauge: '분장막', passive: '분장막이 받는 피해의 60%를 흡수, 맞히면 조금씩 회복',
-    desc: '분장막(20 이상)을 전부 써서 주변 폭발, 가드 불가: 분장막이 많을수록 셈. Q 베이스로 충전, W 파우더로 상대 판정 축소' },
-  copy: { name: '즉흥 연기', button: '즉흥', gauge: '관찰', passive: '상대 스킬을 두 번 보면 Q·W 칸에 복사 (피해 85%)',
-    desc: '상대가 방금 쓴 스킬을 바로 따라 함. R 명연기는 지금 상대의 필살기를 흉내' },
+  lens: { name: '렌즈 교체', button: '렌즈', gauge: '초점', passive: '렌즈마다 완전히 다른 캐릭터 (광각 러시 / 표준 / 망원 저격)',
+    desc: 'D: 다음 렌즈 · →D 광각 · ←D 망원 · ↑D 표준. 교체 순간 잠깐 무적. 망원은 가만히 있으면 초점이 차고 풀초점 샷은 크리티컬' },
+  mark: { name: '액션!', button: '액션', gauge: '콘티', passive: '주먹은 약하고, 콘티(덫)·엑스트라를 깔아 판을 짠다',
+    desc: 'D: 깔아 둔 콘티·엑스트라 동시 발동 · →D 점프컷(내가 콘티로) · ←D 점프컷(상대를 콘티로) · ↓D NG!(받아치기·되감기)' },
+  rec: { name: 'SOUND OVER', button: 'OVER', gauge: '사운드', passive: '붐마이크가 여의봉처럼 늘어남(C 모으기). 맞고 막을수록 사운드↑, 리버브, 강공격 슈퍼아머',
+    desc: 'D: 사운드 방출(많을수록 화면 전체) · ↓D 노이즈 월 · →D 우퍼 장판(30) · ↑D 피드백 기둥(30)' },
+  light: { name: '암전 블링크', button: '암전', gauge: '노출', passive: '빛 기술이 상대 노출을 쌓고, 100이 되면 기절',
+    desc: 'D: 조명을 꺼서 앞으로 순간이동 · ←D 뒤로 · ↓D 반사판 설치(레이저가 꺾여 들어감) · ↑D 팔로우 스폿' },
+  wall: { name: '세트 폭파', button: '폭파', gauge: '제작', passive: '제작 포인트로 구조물을 짓고, 구조물이 많을수록 공격력↑ (최대 +25%)',
+    desc: 'D: 지어 둔 구조물을 파편으로 날림 · →D 세트벽 밀기 · ↓D 비계(벽+발판) · ↑D 공중 발판' },
+  makeup: { name: '특수분장', button: '분장', gauge: '분장막', passive: '분장막이 피해의 60% 흡수. 상처(지속 피해)·노인(느려짐)·파우더(판정 축소)',
+    desc: 'D: 크리처 변신 8초(분장막 30, 기술 세트가 바뀜) · ↓D 베이스(분장막 +35) · →D 클렌징(분장막 전부 폭발, 가드 불가)' },
+  copy: { name: '배역 전환', button: '배역', gauge: '관찰', passive: '상대 기술·커맨드를 두 번 보면 C 칸(C·→C)에 복사',
+    desc: 'D: 액션 → 사극 → 호러 배역 (배역마다 기본기가 다름) · ↓D 즉흥 연기(방금 본 기술 복사) · →D 스턴트 구르기(무적)' },
 }
 
-export interface Wall { owner: number; x: number; hp: number; t: number }
-export interface Box { owner: number; x: number; w: number; h: number; hp: number; t: number }
-interface Sofa { owner: number; x: number; t: number; landed: boolean }
+export interface Wall { owner: number; x: number; hp: number; t: number; h: number; vx?: number }
+export interface Box { owner: number; x: number; y: number; w: number; h: number; hp: number; t: number }
+export interface Extra { owner: number; x: number; y: number; vx: number; vy: number; t: number; cd: number; lunge: number; hit: boolean }
+interface Delayed { owner: number; x: number; t: number; kind: 'pillar' | 'toplight' | 'sofa' | 'collapse'; landed?: boolean }
+interface Field { owner: number; x: number; w: number; t: number; kind: 'woofer' | 'floorlight' | 'poison'; tick: number }
 interface Echo { att: number; dmg: number; t: number }
+export interface Reflector { owner: number; x: number; t: number }
 
-/** 한 사람의 특성 상태 */
 export interface TraitState {
-  lens: number          // 촬영: 0 광각 1 표준 2 망원
-  focus: number         // 촬영: 망원 초점 0~100
-  res: number           // 고유 게이지 (사운드·미술 제작·분장막) 0~100
-  traps: number[]       // 연출: 콘티 위치
-  spot: number          // 조명: 팔로우 스폿 남은 프레임
-  expose: number        // 조명: 상대에게 쌓인 노출 0~100
-  immune: number        // 조명: 기절 뒤 노출 면역
-  slots: string[]       // 배우: 복사한 기술 (원래캐릭터:기술id)
-  observe: Record<string, number>
-  lastSeen: string | null
+  lens: number; focus: number
+  res: number                // 고유 게이지 (사운드·제작·분장막) 0~100
+  traps: number[]
+  spot: number; expose: number; immune: number; gel: number
+  mode: number               // 분장 크리처 남은 프레임
+  role: number               // 배우 배역
+  slots: string[]; observe: Record<string, number>; lastSeen: string | null
 }
 export const newTraitState = (trait?: TraitId): TraitState => ({
-  lens: 1, focus: 0, res: trait === 'makeup' ? 50 : trait === 'wall' ? 30 : 0, traps: [], spot: 0, expose: 0, immune: 0, slots: [], observe: {}, lastSeen: null,
+  lens: 1, focus: 0, res: trait === 'makeup' ? 50 : trait === 'wall' ? 40 : 0, traps: [], spot: 0, expose: 0, immune: 0, gel: 0, mode: 0, role: 0,
+  slots: [], observe: {}, lastSeen: null,
 })
 
-/** Match가 구현해 주는 기능 */
+/** 스테이지 고정 발판 */
+export interface Platform { x: number; y: number; w: number }
+
 export interface TraitHost {
   fighters: [Fighter, Fighter]
   events: MatchEvent[]
   frame: number
+  platforms: Platform[]
   spawnProjectile(f: Fighter, p: ProjectileSpec, name: string): void
+  spawnAt(owner: number, x: number, y: number, p: ProjectileSpec, name: string): void
   hitDirect(att: Fighter, def: Fighter, d: Partial<MoveData> & Pick<MoveData, 'damage' | 'hitstun' | 'kbX' | 'name'>, opts: { unblockable?: boolean; fromX?: number }): void
   posAgo(idx: number, frames: number): { x: number; y: number }
 }
 
-const WALL_H = 46
 const WALL_HALF = 6
-/** 효과의 원래 주인 (배우가 따라 하면 게이지 대신 고정 위력) */
-const OWNER: Record<string, TraitId> = { soundover: 'rec', cleanse: 'makeup', applebox: 'wall', wall: 'wall', sofa: 'wall', base: 'makeup' }
-const COPYABLE = /^(special1|special2|upper|zoompunch|spin|rush|flash)/
+const OWNER: Record<string, TraitId> = { soundover: 'rec', woofer: 'rec', pillar: 'rec', cleanse: 'makeup', transform: 'makeup', applebox: 'wall', platform: 'wall', airPlatform: 'wall', wall: 'wall', sofa: 'wall', stairs: 'wall', scaffold: 'wall', barricade: 'wall' }
+const COST: Record<string, number> = { soundover: 25, woofer: 30, pillar: 30, cleanse: 20, transform: 30, applebox: 20, platform: 20, airPlatform: 15, wall: 30, sofa: 40, stairs: 35, scaffold: 45, barricade: 25 }
+/** 배우가 복사할 수 있는 기술: 직업기(C)·커맨드 */
+const copyable = (m: MoveData) => !!(m.combo || m.id.startsWith('C_')) && !m.ult
 
 export class TraitWorld {
   walls: Wall[] = []
   boxes: Box[] = []
-  sofas: Sofa[] = []
+  extras: Extra[] = []
+  delayed: Delayed[] = []
+  fields: Field[] = []
   echoes: Echo[] = []
+  reflectors: Reflector[] = []
+  /** 조준선 (망원) 등 그리기용 */
   constructor(private host: TraitHost) {}
 
-  private evt(fighter: number, kind: string, x: number, value?: number) { this.host.events.push({ type: 'trait', fighter, kind, x, value }) }
+  private evt(fighter: number, kind: string, x: number, value?: number, y?: number) { this.host.events.push({ type: 'trait', fighter, kind, x, value, y }) }
   private opp(f: Fighter) { return this.host.fighters[1 - f.idx] }
   private own(f: Fighter, effect: string) { return !OWNER[effect] || OWNER[effect] === f.char.trait }
 
-  // ───────────── 버튼 → 기술 ─────────────
-  /** E 버튼으로 낼 기술 (못 쓰면 null) */
-  traitMove(f: Fighter): 'trait' | null {
-    const m = f.char.moves.trait
-    return m && this.canUse(f, m) ? 'trait' : null
+  // ───────────── 기술 칸 → 실제 기술 (모드 변형) ─────────────
+  modeTag(f: Fighter): string {
+    switch (f.char.trait) {
+      case 'lens': return LENSES[f.trait.lens].tag
+      case 'makeup': return f.trait.mode > 0 ? 'creature' : ''
+      case 'copy': return ROLES[f.trait.role].tag
+    }
+    return ''
   }
 
-  /** 스킬을 지금 쓸 수 있는지 (게이지·설치물 조건) */
+  remapMove(f: Fighter, slot: string): string {
+    const mv = f.char.moves
+    if (f.char.trait === 'copy') {
+      if (slot === 'C_n' && mv.copy1) return 'copy1'
+      if (slot === 'C_f' && mv.copy2) return 'copy2'
+      if (slot === 'R') { this.buildCopyUlt(f); if (mv.copyR) return 'copyR' }
+    }
+    const tag = this.modeTag(f)
+    if (tag && mv[`${slot}~${tag}`]) return `${slot}~${tag}`
+    return slot
+  }
+
   canUse(f: Fighter, m: MoveData): boolean {
     const t = f.trait
-    switch (m.effect) {
-      case 'cue': return t.traps.length > 0
-      case 'soundover': return !this.own(f, 'soundover') || t.res >= 30
-      case 'cleanse': return !this.own(f, 'cleanse') || t.res >= 20
-      case 'applebox': return !this.own(f, 'applebox') || t.res >= 25
-      case 'wall': return !this.own(f, 'wall') || t.res >= 35
-      case 'sofa': return !this.own(f, 'sofa') || t.res >= 50
+    const e = m.effect
+    if (!e) return true
+    if (COST[e] != null && this.own(f, e) && t.res < COST[e]) return false
+    switch (e) {
+      case 'action': return t.traps.length > 0 || this.extras.some((x) => x.owner === f.idx)
+      case 'jumpcutSelf': case 'jumpcutOpp': return t.traps.length > 0
+      case 'extraRush': return this.extras.some((x) => x.owner === f.idx)
+      case 'rehearsal': return this.extras.some((x) => x.owner === f.idx)
+      case 'setBlast': case 'collapse': return this.structCount(f) > 0
+      case 'wallPush': return this.walls.some((w) => w.owner === f.idx)
       case 'improv': return !!t.lastSeen
+      case 'transform': return t.mode <= 0
     }
     return true
   }
 
-  /** 버튼 기술 바꿔치기: 촬영 렌즈별 Q·W, 배우 복사 칸 */
-  remapMove(f: Fighter, id: string): string {
-    const mv = f.char.moves
-    if (f.char.trait === 'lens' && (id === 'special1' || id === 'special2')) {
-      const v = `${id}_${['wide', '', 'tele'][f.trait.lens]}`
-      if (f.trait.lens !== 1 && mv[v]) return v
-    }
-    if (f.char.trait === 'copy') {
-      if (id === 'special1' && mv.copy1) return 'copy1'
-      if (id === 'special2' && mv.copy2) return 'copy2'
-      if (id === 'super') { this.buildCopySuper(f); if (mv.copyR) return 'copyR' }
-    }
-    return id
-  }
+  ready(f: Fighter) { const m = f.char.moves[this.remapMove(f, 'D_n')]; return !!m && this.canUse(f, m) && (f.cds[cdKey(m.id)] ?? 0) <= 0 }
 
-  /** 버튼 불 켜기용 */
-  ready(f: Fighter) { return this.traitMove(f) != null && (f.cds.trait ?? 0) <= 0 }
+  private structCount(f: Fighter) { return this.walls.filter((w) => w.owner === f.idx).length + this.boxes.filter((b) => b.owner === f.idx).length }
 
-  // ───────────── 효과 발동 (기술 판정 순간) ─────────────
+  // ───────────── 효과 발동 ─────────────
   activate(f: Fighter, effect: string, m: MoveData) {
     const t = f.trait
     const o = this.opp(f)
     const own = this.own(f, effect)
+    if (COST[effect] != null && own) t.res = Math.max(0, t.res - COST[effect])
+    const ahead = (d: number) => clampX(f.x + f.facing * d)
     switch (effect) {
-      case 'lens':
-        t.lens = (t.lens + 1) % 3; t.focus = 0
-        this.evt(f.idx, 'lens', f.x, t.lens)
-        break
-      case 'trap': {
-        if (t.traps.length >= 3) t.traps.shift()
-        const x = clampX(f.x + f.facing * 46)
-        t.traps.push(x)
-        this.evt(f.idx, 'trap', x)
-        break
-      }
-      case 'cue': {
+      // ─── 촬영 ───
+      case 'lens': this.setLens(f, (t.lens + 1) % 3); break
+      case 'lensWide': this.setLens(f, 0); break
+      case 'lensStd': this.setLens(f, 1); break
+      case 'lensTele': this.setLens(f, 2); break
+      // ─── 연출 ───
+      case 'trap': this.addTrap(f, ahead(70)); break
+      case 'trapFar': this.addTrap(f, ahead(170)); break
+      case 'trap3': for (const d of [60, 120, 180]) this.addTrap(f, ahead(d)); break
+      case 'trapHere': this.addTrap(f, clampX(f.x)); break
+      case 'extra': this.summon(f, 1); break
+      case 'extras2': this.summon(f, 2); break
+      case 'extraDrop': this.extras.push({ owner: f.idx, x: clampX(o.x), y: 150, vx: 0, vy: 0, t: 420, cd: 0, lunge: 0, hit: false }); this.evt(f.idx, 'extra', o.x); break
+      case 'action': {
         for (const x of t.traps) {
           this.evt(f.idx, 'cue', x)
-          if (Math.abs(o.x - x) < 38 && o.y < 46) this.host.hitDirect(f, o, { name: '큐 사인', damage: 72, chip: 8, hitstun: 26, kbX: 2, kbY: 5.5, finisher: true }, { fromX: x })
+          if (Math.abs(o.x - x) < 44 && o.y < 60) this.host.hitDirect(f, o, { name: '액션! (콘티 폭발)', damage: 62, chip: 8, hitstun: 26, kbX: 2.4, kbY: 6, finisher: true }, { fromX: x })
         }
         t.traps = []
+        for (const e of this.extras) if (e.owner === f.idx) { e.lunge = 16; e.hit = false }
+        this.evt(f.idx, 'action', f.x)
         break
       }
-      case 'retake': {
-        const p = this.host.posAgo(o.idx, 120)
-        const from = o.x
-        o.x = p.x; o.y = 0; o.vx = 0; o.vy = 0
-        o.move = null; o.setState('hit'); o.stun = 72; o.frozen = 72
-        o.hp = Math.max(1, o.hp - Math.round(36 * f.dmgMul))
-        this.evt(f.idx, 'retake', o.x, from)
-        break
-      }
+      case 'jumpcutSelf': { const x = t.traps[t.traps.length - 1]; const from = f.x; f.x = x; f.invuln = Math.max(f.invuln, 10); this.evt(f.idx, 'teleport', x, from); break }
+      case 'jumpcutOpp': { const x = t.traps[t.traps.length - 1]; const from = o.x; if (o.invuln <= 0 && o.grounded) { o.x = x; o.vx = 0; this.evt(f.idx, 'teleport', x, from) } break }
+      case 'extraRush': for (const e of this.extras) if (e.owner === f.idx) { e.lunge = 22; e.hit = false; e.vx = (o.x >= e.x ? 1 : -1) * 6 } this.evt(f.idx, 'action', f.x); break
+      case 'rehearsal': for (const e of this.extras) if (e.owner === f.idx) { e.x = clampX(o.x + (e === this.extras[0] ? -24 : 24)); e.y = 0; e.lunge = 10; e.hit = false } this.evt(f.idx, 'action', o.x); break
+      case 'slowmo': if (o.invuln <= 0) { o.slowT = 200; this.evt(f.idx, 'slow', o.x) } break
+      // ─── 사운드 ───
       case 'soundover': {
-        const r = own ? t.res : 50
-        const half = 30 + r * 0.7
+        const r = own ? t.res + COST.soundover : 50
+        const half = 60 + r * 3.2
         this.evt(f.idx, 'soundover', f.x, r)
-        if (Math.abs(o.x - f.x) < half && o.y < 70) this.host.hitDirect(f, o, { name: `SOUND OVER ${Math.round(r)}`, damage: Math.round(30 + r * 1.1), chip: Math.round(r * 0.2), hitstun: 30, blockstun: 20, kbX: 3 + r / 30, kbY: r >= 70 ? 5 : undefined, finisher: r >= 70 }, {})
+        if (Math.abs(o.x - f.x) < half && o.y < 120) this.host.hitDirect(f, o, { name: `SOUND OVER ${Math.round(r)}`, damage: Math.round(34 + r * 1.25), chip: Math.round(r * 0.25), hitstun: 32, blockstun: 22, kbX: 3 + r / 18, kbY: r >= 60 ? 6 : 2.5, finisher: r >= 60, wallBounce: true }, {})
         if (own) t.res = 0
         break
       }
-      case 'backlight':
-        this.evt(f.idx, 'backlight', o.x)
-        if (Math.abs(o.x - f.x) < 170) this.host.hitDirect(f, o, { name: '백라이트', damage: 32, chip: 4, hitstun: 28, blockstun: 12, kbX: 3.4, expose: 18 }, { fromX: o.x + Math.sign(o.x - f.x) * 30 })
-        break
-      case 'followspot':
-        t.spot = 240
-        this.evt(f.idx, 'spot', o.x)
-        break
-      case 'applebox': {
-        if (own) t.res -= 25
-        const mine = this.boxes.filter((b) => b.owner === f.idx)
-        if (mine.length >= 2) this.boxes = this.boxes.filter((b) => b !== mine[0])
-        const x = clampX(f.x + f.facing * 34)
-        this.boxes.push({ owner: f.idx, x, w: 30, h: 16, hp: 3, t: 1500 })
-        this.evt(f.idx, 'applebox', x)
-        break
-      }
-      case 'wall': {
-        if (own) t.res -= 35
-        this.walls = this.walls.filter((w) => w.owner !== f.idx)
-        const x = clampX(f.x + f.facing * 32)
-        this.walls.push({ owner: f.idx, x, hp: 3, t: 900 })
-        this.evt(f.idx, 'wall', x)
-        break
-      }
-      case 'sofa':
-        if (own) t.res = Math.max(0, t.res - 50)
-        this.sofas.push({ owner: f.idx, x: clampX(o.x), t: 36, landed: false })
-        this.evt(f.idx, 'sofaWarn', o.x)
-        break
-      case 'setchange': {
-        for (const s of [...this.walls.filter((w) => w.owner === f.idx), ...this.boxes.filter((b) => b.owner === f.idx)]) {
-          this.evt(f.idx, 'wallbreak', s.x)
-          if (Math.abs(o.x - s.x) < 46) this.host.hitDirect(f, o, { name: '세트 체인지', damage: 56, hitstun: 24, kbX: 3, kbY: 4.5 }, { fromX: s.x })
+      case 'woofer': this.fields.push({ owner: f.idx, x: ahead(110), w: 150, t: 300, kind: 'woofer', tick: 0 }); this.evt(f.idx, 'woofer', ahead(110)); break
+      case 'pillar': for (const dx of [-50, 0, 50]) this.delayed.push({ owner: f.idx, x: clampX(o.x + dx), t: 26 + Math.abs(dx) / 5, kind: 'pillar' }); this.evt(f.idx, 'pillarWarn', o.x); break
+      // ─── 조명 ───
+      case 'blinkFwd': this.blink(f, ahead(190)); break
+      case 'blinkBack': this.blink(f, ahead(-210)); break
+      case 'blinkBehind': this.blink(f, clampX(o.x + (o.x >= f.x ? 36 : -36))); f.facing = o.x >= f.x ? 1 : -1; break
+      case 'spot': t.spot = 240; this.evt(f.idx, 'spot', o.x); break
+      case 'reflector': this.reflectors = [...this.reflectors.filter((r) => r.owner !== f.idx).slice(-1), { owner: f.idx, x: ahead(120), t: 900 }]; this.evt(f.idx, 'reflector', ahead(120)); break
+      case 'gel': t.gel = 3; this.evt(f.idx, 'gel', f.x); break
+      case 'toplight': this.delayed.push({ owner: f.idx, x: clampX(o.x), t: 30, kind: 'toplight' }); this.evt(f.idx, 'pillarWarn', o.x); break
+      case 'floorlight': this.fields.push({ owner: f.idx, x: ahead(90), w: 120, t: 360, kind: 'floorlight', tick: 0 }); this.evt(f.idx, 'floorlight', ahead(90)); break
+      case 'reflect':
+        for (const r of this.reflectors) if (r.owner === f.idx && Math.abs(o.x - r.x) < 420) {
+          this.evt(f.idx, 'reflectBeam', r.x, o.x)
+          this.host.hitDirect(f, o, { name: '반사광', damage: 26, chip: 4, hitstun: 20, kbX: 1.5, expose: 14 }, { fromX: r.x })
         }
-        this.walls = this.walls.filter((w) => w.owner !== f.idx); this.boxes = this.boxes.filter((b) => b.owner !== f.idx)
-        if (f.char.trait === 'wall') t.res = 100
+        break
+      // ─── 미술 ───
+      case 'applebox': this.addBox(f, ahead(40), 0, 32, 18); break
+      case 'platform': this.addBox(f, ahead(50), 70, 56, 6); break
+      case 'airPlatform': this.addBox(f, clampX(f.x), Math.max(20, f.y - 10), 50, 6); f.vy = Math.max(f.vy, 0); break
+      case 'stairs': this.addBox(f, ahead(60), 34, 44, 6); this.addBox(f, ahead(110), 74, 44, 6); break
+      case 'scaffold': this.addWall(f, ahead(70), 80); this.addBox(f, ahead(70), 80, 40, 6); break
+      case 'wall': this.addWall(f, ahead(40), 50); break
+      case 'barricade': this.addWall(f, ahead(28), 46); break
+      case 'sofa': this.delayed.push({ owner: f.idx, x: clampX(o.x), t: 34, kind: 'sofa' }); this.evt(f.idx, 'sofaWarn', o.x); break
+      case 'collapse': for (const s of this.ownStructs(f)) if (Math.abs(o.x - s.x) < 160) this.delayed.push({ owner: f.idx, x: clampX(o.x + (s.x - o.x) * 0.3), t: 18, kind: 'collapse' }); this.clearStructs(f); break
+      case 'setBlast': {
+        // 구조물을 파편 투사체로 상대에게 날림
+        for (const s of this.ownStructs(f)) {
+          const dir = o.x >= s.x ? 1 : -1
+          this.host.spawnAt(f.idx, s.x, (s as Box).y ?? 20, { kind: 'debris', offsetX: 0, startY: 0, vx: 6 * dir, vy: 1.5, gy: 0.08, w: 20, h: 20, life: 90, damage: 34, chip: 6, hitstun: 22, blockstun: 12, kbX: 3, kbY: 3, wallBounce: true }, '세트 파편')
+          this.evt(f.idx, 'wallbreak', s.x)
+        }
+        this.clearStructs(f)
         break
       }
-      case 'base':
-        t.res = Math.min(100, t.res + 35)
-        this.evt(f.idx, 'base', f.x, t.res)
+      case 'wallPush': {
+        const w = this.walls.filter((q) => q.owner === f.idx).sort((a, b) => Math.abs(a.x - f.x) - Math.abs(b.x - f.x))[0]
+        if (w) { w.vx = (o.x >= w.x ? 1 : -1) * 4.5; this.evt(f.idx, 'wallPush', w.x) }
         break
+      }
+      case 'setchange': for (const s of this.ownStructs(f)) this.evt(f.idx, 'wallbreak', s.x); this.clearStructs(f); if (f.char.trait === 'wall') t.res = 100; break
+      // ─── 분장 ───
+      case 'base': t.res = Math.min(100, t.res + 35); this.evt(f.idx, 'base', f.x, t.res); break
+      case 'fixer': t.res = Math.min(100, t.res + 15); this.fields.push({ owner: f.idx, x: ahead(50), w: 90, t: 240, kind: 'poison', tick: 0 }); this.evt(f.idx, 'base', f.x, t.res); break
+      case 'transform': t.mode = 480; f.invuln = Math.max(f.invuln, 16); this.evt(f.idx, 'transform', f.x); break
       case 'cleanse': {
-        const r = own ? t.res : 50
+        const r = own ? t.res + COST.cleanse : 50
         f.invuln = Math.max(f.invuln, 20)
         this.evt(f.idx, 'cleanse', f.x, r)
-        if (Math.abs(o.x - f.x) < 64 && o.y < 60) this.host.hitDirect(f, o, { name: `클렌징 ${Math.round(r)}`, damage: Math.round(20 + r * 1.3), hitstun: 28, kbX: 4, kbY: r >= 60 ? 4.5 : undefined, finisher: r >= 60 }, { unblockable: true })
+        if (Math.abs(o.x - f.x) < 90 && o.y < 80) this.host.hitDirect(f, o, { name: `클렌징 ${Math.round(r)}`, damage: Math.round(24 + r * 1.3), hitstun: 30, kbX: 5, kbY: r >= 50 ? 5.5 : 2, finisher: r >= 50, wallBounce: true }, { unblockable: true })
         if (own) t.res = 0
         break
       }
-      case 'fullmakeup':
-        if (f.char.trait === 'makeup') t.res = 100
-        break
-      case 'roll':
-        f.invuln = Math.max(f.invuln, (m.active ?? 16) + 4)
-        break
-      case 'improv':
-        if (t.lastSeen) this.learn(f, t.lastSeen, true)
-        break
+      case 'curse': if (o.invuln <= 0) { o.slowT = 300; o.bleed = Math.max(o.bleed, 180); this.evt(f.idx, 'slow', o.x) } break
+      case 'fullmakeup': if (f.char.trait === 'makeup') { t.res = 100; t.mode = 480 } break
+      // ─── 배우 ───
+      case 'role': t.role = (t.role + 1) % 3; this.evt(f.idx, 'role', f.x, t.role); break
+      case 'roll': f.invuln = Math.max(f.invuln, (m.active ?? 16) + 4); break
+      case 'double': f.invuln = Math.max(f.invuln, 24); this.evt(f.idx, 'double', f.x); break
+      case 'improv': if (t.lastSeen) this.learn(f, t.lastSeen, true); break
     }
   }
 
-  // ───────────── 기술 고치기 (렌즈·초점·발판·블라인드·아머) ─────────────
+  private setLens(f: Fighter, lens: number) {
+    f.trait.lens = lens; f.trait.focus = 0
+    f.invuln = Math.max(f.invuln, 8)
+    this.evt(f.idx, 'lens', f.x, lens)
+  }
+  private addTrap(f: Fighter, x: number) {
+    const t = f.trait
+    t.traps.push(x); if (t.traps.length > 4) t.traps.shift()
+    this.evt(f.idx, 'trap', x)
+  }
+  private summon(f: Fighter, n: number) {
+    const mine = this.extras.filter((e) => e.owner === f.idx)
+    for (let k = 0; k < n; k++) {
+      if (mine.length + k >= 3) this.extras.splice(this.extras.indexOf(this.extras.find((e) => e.owner === f.idx)!), 1)
+      this.extras.push({ owner: f.idx, x: clampX(f.x + f.facing * (24 + k * 20)), y: 0, vx: 0, vy: 0, t: 600, cd: 20 + k * 12, lunge: 0, hit: false })
+    }
+    this.evt(f.idx, 'extra', f.x + f.facing * 24, n)
+  }
+  private blink(f: Fighter, x: number) {
+    const from = f.x
+    f.x = x; f.y = Math.max(f.y, f.floorY); f.vx = 0
+    f.invuln = Math.max(f.invuln, 10)
+    this.evt(f.idx, 'blink', x, from)
+  }
+  private addBox(f: Fighter, x: number, y: number, w: number, h: number) {
+    const mine = this.boxes.filter((b) => b.owner === f.idx)
+    if (mine.length >= 4) this.boxes.splice(this.boxes.indexOf(mine[0]), 1)
+    this.boxes.push({ owner: f.idx, x, y, w, h, hp: 3, t: 1800 })
+    this.evt(f.idx, 'applebox', x, undefined, y)
+  }
+  private addWall(f: Fighter, x: number, h: number) {
+    const mine = this.walls.filter((w) => w.owner === f.idx)
+    if (mine.length >= 2) this.walls.splice(this.walls.indexOf(mine[0]), 1)
+    this.walls.push({ owner: f.idx, x, hp: 3, t: 1200, h })
+    this.evt(f.idx, 'wall', x, h)
+  }
+  private ownStructs(f: Fighter): { x: number; y?: number }[] { return [...this.walls.filter((w) => w.owner === f.idx), ...this.boxes.filter((b) => b.owner === f.idx)] }
+  private clearStructs(f: Fighter) { this.walls = this.walls.filter((w) => w.owner !== f.idx); this.boxes = this.boxes.filter((b) => b.owner !== f.idx) }
+
+  // ───────────── 기술 고치기 ─────────────
   modifyMove(f: Fighter, m: MoveData): MoveData {
     if (m.effect && m.hitbox.w === 0 && !m.projectile) return m
     let out: MoveData = m
     const t = f.trait
     const edit = (fn: (x: MoveData) => void) => { if (out === m) out = { ...m, hitbox: { ...m.hitbox }, projectile: m.projectile ? { ...m.projectile } : undefined }; fn(out) }
     const scale = (x: MoveData, k: number) => { x.damage = Math.round(x.damage * k); x.chip = Math.round(x.chip * k); if (x.projectile) { x.projectile.damage = Math.round(x.projectile.damage * k); x.projectile.chip = Math.round(x.projectile.chip * k) } }
-    if (f.char.trait === 'lens') {
-      if (t.lens === 0) edit((x) => {
-        x.startup = Math.max(2, x.startup - 1); scale(x, 0.88); x.hitstun += 2
-        if (x.hitbox.w > 0) { x.hitbox.x -= 4; x.hitbox.w = Math.round(x.hitbox.w * 1.25 + 4); x.hitbox.y = Math.max(0, x.hitbox.y - 4); x.hitbox.h = Math.round(x.hitbox.h * 1.25) }
-      })
-      if (t.lens === 2) edit((x) => {
-        x.startup += 2; scale(x, 1.2)
-        if (x.hitbox.w > 0) { x.hitbox.x += 14; x.hitbox.h = Math.round(x.hitbox.h * 0.85) }
-        if (x.projectile && x.projectile.vx !== 0) x.projectile.vx *= 1.3
-      })
-      // 초점이 가득 찬 첫 공격 = 크리티컬
-      if (t.lens === 2 && t.focus >= 100) edit((x) => { scale(x, 1.6); x.hitstun += 6; x.crit = true; if (x.projectile) x.projectile.crit = true })
+    if (f.char.trait === 'lens' && t.lens === 2) {
+      // 망원: 근접기는 약함, 원거리는 초점이 가득 차면 크리티컬
+      if (!m.projectile && m.hitbox.x + m.hitbox.w < 120) edit((x) => scale(x, 0.7))
+      if (t.focus >= 100 && (m.projectile || m.hitbox.x + m.hitbox.w >= 200)) edit((x) => { scale(x, 1.8); x.hitstun += 8; x.kbX *= 1.6; x.kbY = Math.max(x.kbY ?? 0, 5); x.crit = true; x.wallBounce = true; if (x.projectile) { x.projectile.crit = true; x.projectile.kbX *= 1.6; x.projectile.kbY = 5; x.projectile.wallBounce = true } })
     }
-    // 미술: 애플박스 위에서 공격력 +15%
-    if (f.y > 0 && this.boxes.some((b) => Math.abs(f.x - b.x) < b.w / 2 + 4 && Math.abs(f.y - b.h) < 2)) edit((x) => scale(x, 1.15))
-    // 사운드: 강공격 슈퍼아머 (탱커)
-    if (f.char.trait === 'rec' && m.id === 'heavy') edit((x) => { x.armor = 1 })
-    // 분장 파우더에 맞은 상대: 판정이 작아지고 투사체가 약해짐
+    // 미술: 구조물이 많을수록 강해짐, 애플박스·발판 위에서 +10%
+    if (f.char.trait === 'wall') {
+      const n = this.structCount(f)
+      const onBox = f.y > 0 && this.boxes.some((b) => Math.abs(f.x - b.x) < b.w / 2 + 4 && Math.abs(f.y - (b.y + b.h)) < 2)
+      const k = 1 + Math.min(0.25, n * 0.06) + (onBox ? 0.1 : 0)
+      if (k > 1) edit((x) => scale(x, k))
+    }
+    if (f.char.trait === 'rec' && (m.id.startsWith('B_') || m.id.startsWith('C_n'))) edit((x) => { x.armor = 1 })
+    if (f.char.trait === 'makeup' && t.mode > 0) edit((x) => { scale(x, 1.2); if (m.id.startsWith('B_')) x.armor = 1 })
     if (f.blind > 0) edit((x) => { if (x.hitbox.w > 0) { x.hitbox.w = Math.round(x.hitbox.w * 0.6); x.hitbox.h = Math.round(x.hitbox.h * 0.75) } if (x.projectile) x.projectile.damage = Math.round(x.projectile.damage * 0.8) })
     return out
   }
 
-  /** 받아치기·노이즈 월: 맞기 전에 가로챔. 'parried'면 공격 무효 + 상대 굳음, 'walled'면 막은 것으로 처리 */
+  /** 받아치기(NG!)·노이즈 월: 맞기 전에 가로챔 */
   intercept(att: Fighter, def: Fighter): 'parried' | 'walled' | null {
     const m = def.move
     if (def.state !== 'attack' || !m?.effect) return null
     const active = def.moveFrame >= m.startup && def.moveFrame < m.startup + m.active
     if (!active) return null
     if (m.effect === 'parry') {
-      att.move = null; att.setState('hit'); att.stun = 44; att.vx = -att.facing * 1.5
-      def.move = null; def.setState('idle')
-      def.invuln = 8
+      // NG! 공격을 끊고 상대를 1초 전 자리로 되감기
+      const p = this.host.posAgo(att.idx, 50)
+      att.move = null; att.setState('hit'); att.stun = 46; att.vx = 0
+      att.x = p.x; att.y = Math.max(0, p.y)
+      def.move = null; def.setState('idle'); def.invuln = 8
       this.evt(def.idx, 'parry', (att.x + def.x) / 2)
       return 'parried'
     }
     if (m.effect === 'noisewall') {
-      if (def.char.trait === 'rec') def.trait.res = Math.min(100, def.trait.res + 15)
+      if (def.char.trait === 'rec') def.trait.res = Math.min(100, def.trait.res + 12)
       this.evt(def.idx, 'noisewall', (att.x + def.x) / 2)
       return 'walled'
     }
     return null
   }
 
-  /** 분장막: 받는 피해의 60% 흡수 */
   absorb(def: Fighter, dmg: number): number {
     const t = def.trait
     if (def.char.trait !== 'makeup' || t.res <= 0) return dmg
@@ -292,19 +350,23 @@ export class TraitWorld {
 
   onDamaged(def: Fighter, dmg: number, blocked: boolean) {
     const t = def.trait
-    if (def.char.trait === 'rec') t.res = Math.min(100, t.res + (blocked ? 5 : dmg * 0.3))
+    if (def.char.trait === 'rec') t.res = Math.min(100, t.res + (blocked ? 6 : dmg * 0.32))
     if (def.char.trait === 'wall') t.res = Math.min(100, t.res + (blocked ? 2 : 4))
     if (!blocked) def.trait.focus = 0
   }
 
-  /** 맞혔을 때 (막혔으면 blocked) */
-  onHit(att: Fighter, def: Fighter, d: Partial<MoveData> & { blind?: number }, dmg: number, blocked: boolean) {
+  onHit(att: Fighter, def: Fighter, d: Partial<MoveData> & { blind?: number; debuff?: MoveData['debuff'] }, dmg: number, blocked: boolean) {
     const t = att.trait
-    if (att.char.trait === 'rec' && !blocked) { t.res = Math.min(100, t.res + 2); if (dmg >= 10 && d.id !== 'trait') this.echoes.push({ att: att.idx, dmg: Math.max(1, Math.round(dmg * 0.15)), t: 28 }) }
-    if (att.char.trait === 'wall') t.res = Math.min(100, t.res + (blocked ? 3 : 8))
-    if (att.char.trait === 'makeup' && !blocked) t.res = Math.min(100, t.res + 4)
-    if (att.char.trait === 'light' && d.expose) this.addExpose(att, blocked ? d.expose / 3 : d.expose)
-    if (d.blind && !blocked) { def.blind = d.blind; this.evt(def.idx, 'blind', def.x) }
+    if (att.char.trait === 'rec' && !blocked) { t.res = Math.min(100, t.res + 2); if (dmg >= 12 && d.id !== 'trait') this.echoes.push({ att: att.idx, dmg: Math.max(1, Math.round(dmg * 0.15)), t: 30 }) }
+    if (att.char.trait === 'wall') t.res = Math.min(100, t.res + (blocked ? 3 : 7))
+    if (att.char.trait === 'makeup' && !blocked) t.res = Math.min(100, t.res + 3)
+    if (att.char.trait === 'light' && d.expose) { const v = (blocked ? d.expose / 3 : d.expose) * (t.gel > 0 ? 2 : 1); if (t.gel > 0 && !blocked) t.gel--; this.addExpose(att, v) }
+    if (!blocked) {
+      const db = d.debuff ?? (d.blind ? { blind: d.blind } : undefined)
+      if (db?.blind) { def.blind = Math.max(def.blind, db.blind); this.evt(def.idx, 'blind', def.x) }
+      if (db?.slow) { def.slowT = Math.max(def.slowT, db.slow); this.evt(def.idx, 'slow', def.x) }
+      if (db?.bleed) { def.bleed = Math.max(def.bleed, db.bleed); this.evt(def.idx, 'bleed', def.x) }
+    }
   }
 
   private addExpose(g: Fighter, v: number) {
@@ -313,11 +375,11 @@ export class TraitWorld {
     t.expose = Math.min(100, t.expose + v)
   }
 
-  /** 상대가 기술을 시작했을 때 (배우 관찰) + 내 기술 시작 (초점 소모) */
   onMoveStart(f: Fighter, id: string) {
-    if (f.char.trait === 'lens' && f.trait.lens === 2 && !id.startsWith('trait')) f.trait.focus = 0
+    if (f.char.trait === 'lens' && f.trait.lens === 2) f.trait.focus = 0
     const o = this.opp(f)
-    if (o.char.trait === 'copy' && f.char.trait !== 'copy' && COPYABLE.test(id) && Math.abs(o.x - f.x) < 260) {
+    const m = f.char.moves[id]
+    if (o.char.trait === 'copy' && f.char.trait !== 'copy' && m && copyable(m) && Math.abs(o.x - f.x) < 520) {
       const key = `${f.char.id}:${id}`
       const t = o.trait
       t.lastSeen = key
@@ -327,13 +389,10 @@ export class TraitWorld {
     }
   }
 
-  /** 배우: 기술 복사 (칸 2개, 넘치면 오래된 것부터) */
   private learn(actor: Fighter, key: string, improv: boolean) {
-    const [cid, mid] = key.split(':')
+    const [cid] = key.split(':')
     const o = this.opp(actor)
     if (o.char.id !== cid) return
-    const src = o.char.moves[mid]
-    if (!src) return
     const t = actor.trait
     if (!t.slots.includes(key)) { t.slots.push(key); if (t.slots.length > 2) t.slots.shift() }
     t.slots.forEach((k, i) => {
@@ -344,79 +403,157 @@ export class TraitWorld {
     this.evt(actor.idx, improv ? 'improv' : 'learn', actor.x, t.slots.indexOf(key) + 1)
   }
 
-  private buildCopySuper(f: Fighter) {
-    const s = this.opp(f).char.moves.super
-    if (s && this.opp(f).char.trait !== 'copy') f.char.moves.copyR = { ...copyMove(s, 'copyR', this.opp(f).char.id, 0.9), cost: 100, name: `명연기: ${s.name}` }
+  private buildCopyUlt(f: Fighter) {
+    const o = this.opp(f)
+    const s = o.char.moves.R
+    if (s && o.char.trait !== 'copy') f.char.moves.copyR = { ...copyMove(s, 'copyR', o.char.id, 1.1), cost: 100, name: `명연기: ${s.name}`, ult: s.ult ? { ...s.ult, total: Math.round(s.ult.total * 1.1) } : undefined }
   }
 
   // ───────────── 매 프레임 ─────────────
   tick() {
-    const [a, b] = this.host.fighters
-    for (const f of [a, b]) {
+    const fs = this.host.fighters
+    for (const f of fs) {
       const t = f.trait
       const o = this.opp(f)
       if (f.blind > 0) f.blind--
-      // 촬영 망원: 가만히 있으면 초점이 참
+      if (f.bleed > 0) { f.bleed--; if (f.bleed % 20 === 0 && f.hp > 1) { f.hp = Math.max(1, f.hp - 3); this.evt(f.idx, 'bleedTick', f.x, 3) } }
       if (f.char.trait === 'lens') {
-        if (t.lens === 2 && f.grounded && (f.state === 'idle' || f.state === 'crouch' || f.state === 'guard')) t.focus = Math.min(100, t.focus + 1.7)
-        else if (f.state === 'walk' || f.state === 'run' || f.state === 'jump') t.focus = Math.max(0, t.focus - 4)
+        if (t.lens === 2 && f.grounded && (f.state === 'idle' || f.state === 'crouch' || f.state === 'guard')) t.focus = Math.min(100, t.focus + 1.6)
+        else if (['walk', 'run', 'dash', 'jump'].includes(f.state)) t.focus = Math.max(0, t.focus - 4)
         if (t.lens !== 2) t.focus = 0
       }
-      if (f.char.trait === 'wall') t.res = Math.min(100, t.res + 0.06)
-      if (f.char.trait === 'makeup') t.res = Math.min(100, t.res + 0.03)
-      // 연출 콘티: 상대가 밟으면 묶임
+      if (f.char.trait === 'wall') t.res = Math.min(100, t.res + 0.07)
+      if (f.char.trait === 'makeup') { t.res = Math.min(100, t.res + 0.03); if (t.mode > 0) t.mode-- }
+      // 연출 콘티: 밟으면 묶임
       if (t.traps.length && o.grounded && o.invuln <= 0 && o.snare <= 0) {
-        const hit = t.traps.find((x) => Math.abs(o.x - x) < 14)
+        const hit = t.traps.find((x) => Math.abs(o.x - x) < 15)
         if (hit != null) {
           t.traps = t.traps.filter((x) => x !== hit)
-          o.snare = 54
-          this.host.hitDirect(f, o, { name: '콘티 밟음', damage: 20, hitstun: 12, kbX: 0 }, { unblockable: true })
+          o.snare = 60
+          this.host.hitDirect(f, o, { name: '콘티 밟음', damage: 18, hitstun: 14, kbX: 0 }, { unblockable: true })
           this.evt(f.idx, 'snare', hit)
         }
       }
-      // 조명: 팔로우 스폿 + 노출이 가득 차면 기절
       if (f.char.trait === 'light') {
         if (t.immune > 0) t.immune--
         if (t.spot > 0) { t.spot--; if (o.state !== 'guard') this.addExpose(f, 0.55) }
         if (t.expose >= 100 && o.grounded && o.hp > 0 && o.state !== 'knockdown' && o.state !== 'knockback') {
-          o.move = null; o.setState('hit'); o.stun = 86; o.dizzy = 86; o.vx = 0
+          o.move = null; o.setState('hit'); o.stun = 90; o.dizzy = 90; o.vx = 0
           t.expose = 0; t.immune = 240
           this.evt(f.idx, 'stun', o.x)
         }
       }
     }
-    // 사운드 리버브: 조금 뒤에 잔향 피해
+    this.tickExtras()
+    // 지연 공격: 피드백 기둥·탑라이트·소파·붕괴
+    for (const d of this.delayed) {
+      if (--d.t > 0 || d.landed) continue
+      d.landed = true; d.t = d.kind === 'sofa' ? 50 : 14
+      const att = fs[d.owner], def = fs[1 - d.owner]
+      this.evt(d.owner, d.kind, d.x)
+      const near = Math.abs(def.x - d.x) < (d.kind === 'sofa' ? 30 : 24)
+      if (!near) continue
+      if (d.kind === 'pillar') this.host.hitDirect(att, def, { name: '피드백 기둥', damage: 32, chip: 6, hitstun: 22, blockstun: 14, kbX: 0.5, kbY: 5.5 }, { fromX: d.x })
+      if (d.kind === 'toplight') this.host.hitDirect(att, def, { name: '탑라이트', damage: 36, chip: 6, hitstun: 24, blockstun: 14, kbX: 0.5, kbY: 3, overhead: true, expose: 24 }, { fromX: d.x })
+      if (d.kind === 'sofa') this.host.hitDirect(att, def, { name: '소파 드롭', damage: 78, chip: 12, hitstun: 30, blockstun: 18, kbX: 1.5, kbY: 3, overhead: true, finisher: true, groundBounce: true }, { fromX: d.x })
+      if (d.kind === 'collapse') this.host.hitDirect(att, def, { name: '세트 붕괴', damage: 54, chip: 10, hitstun: 26, blockstun: 16, kbX: 2, kbY: 4, overhead: true }, { fromX: d.x })
+    }
+    this.delayed = this.delayed.filter((d) => !d.landed || d.t-- > 0)
+    // 장판: 우퍼(지속 피해+느려짐)·바닥 조명(노출)·독 안개(분장)
+    for (const fl of this.fields) {
+      fl.t--; fl.tick++
+      const att = fs[fl.owner], def = fs[1 - fl.owner]
+      if (Math.abs(def.x - fl.x) > fl.w / 2 || def.y > 30) continue
+      if (fl.kind === 'woofer' && fl.tick % 15 === 0 && def.hp > 1) { def.hp = Math.max(1, def.hp - 4); def.slowT = Math.max(def.slowT, 20); this.evt(fl.owner, 'wooferTick', def.x) }
+      if (fl.kind === 'floorlight') this.addExpose(att, 0.5)
+      if (fl.kind === 'poison' && fl.tick % 20 === 0 && def.hp > 1) { def.hp = Math.max(1, def.hp - 3); this.evt(fl.owner, 'bleedTick', def.x, 3) }
+    }
+    this.fields = this.fields.filter((f) => f.t > 0)
     for (const e of this.echoes) {
       if (--e.t > 0) continue
-      const def = this.host.fighters[1 - e.att]
+      const def = fs[1 - e.att]
       if (def.hp > 1) { def.hp = Math.max(1, def.hp - e.dmg); this.evt(e.att, 'reverb', def.x, e.dmg) }
     }
     this.echoes = this.echoes.filter((e) => e.t > 0)
-    // 미술 소파 낙하
-    for (const s of this.sofas) {
-      if (--s.t > 0 || s.landed) continue
-      s.landed = true; s.t = 50
-      const att = this.host.fighters[s.owner], def = this.host.fighters[1 - s.owner]
-      this.evt(s.owner, 'sofa', s.x)
-      if (Math.abs(def.x - s.x) < 28 && def.y < 50) this.host.hitDirect(att, def, { name: '소파 드롭', damage: 84, chip: 14, hitstun: 30, blockstun: 18, kbX: 1.5, kbY: 3, overhead: true, finisher: true }, { fromX: s.x })
+    for (const r of this.reflectors) r.t--
+    this.reflectors = this.reflectors.filter((r) => r.t > 0)
+    // 밀려가는 세트벽
+    for (const w of this.walls) if (w.vx) {
+      w.x += w.vx
+      const def = fs[1 - w.owner]
+      if (Math.abs(def.x - w.x) < 16 && def.y < w.h) { this.host.hitDirect(fs[w.owner], def, { name: '세트벽 밀기', damage: 52, chip: 8, hitstun: 24, blockstun: 14, kbX: 6, kbY: 3, wallBounce: true }, { fromX: w.x - w.vx * 4 }); w.hp = 0; this.evt(w.owner, 'wallbreak', w.x) }
+      if (w.x < 20 || w.x > STAGE_W - 20) w.hp = 0
     }
-    this.sofas = this.sofas.filter((s) => !s.landed || s.t-- > 0)
     for (const w of this.walls) w.t--
-    for (const bx of this.boxes) bx.t--
+    for (const b of this.boxes) b.t--
     this.walls = this.walls.filter((w) => w.t > 0 && w.hp > 0)
-    this.boxes = this.boxes.filter((q) => q.t > 0 && q.hp > 0)
+    this.boxes = this.boxes.filter((b) => b.t > 0 && b.hp > 0)
   }
 
-  /** 발판(애플박스) 높이: 위에서 내려오면 올라섬 */
+  /** 엑스트라: 상대에게 걸어가 주먹질, "액션!"이면 몸통 박치기 */
+  private tickExtras() {
+    const fs = this.host.fighters
+    for (const e of this.extras) {
+      const att = fs[e.owner], def = fs[1 - e.owner]
+      e.t--
+      if (e.y > 0 || e.vy > 0) { e.vy -= 0.35; e.y = Math.max(0, e.y + e.vy); if (e.y === 0) { e.vy = 0; if (Math.abs(def.x - e.x) < 26 && !e.hit) { e.hit = true; this.host.hitDirect(att, def, { name: '엑스트라 낙하', damage: 40, chip: 6, hitstun: 22, blockstun: 14, kbX: 1.5, kbY: 3.5, overhead: true }, { fromX: e.x }) } } continue }
+      const dir = def.x >= e.x ? 1 : -1
+      if (e.lunge > 0) {
+        e.lunge--; e.x = clampX(e.x + dir * 4.6)
+        if (!e.hit && Math.abs(def.x - e.x) < 22) { e.hit = true; this.host.hitDirect(att, def, { name: '엑스트라 박치기', damage: 34, chip: 6, hitstun: 24, blockstun: 14, kbX: 3, kbY: 4.5 }, { fromX: e.x - dir * 10 }) }
+        continue
+      }
+      if (e.cd > 0) e.cd--
+      if (Math.abs(def.x - e.x) > 24) e.x = clampX(e.x + dir * 1.3)
+      else if (e.cd <= 0) { e.cd = 55; this.host.hitDirect(att, def, { name: '엑스트라 주먹', damage: 14, chip: 2, hitstun: 18, blockstun: 10, kbX: 1.2 }, { fromX: e.x }); this.evt(e.owner, 'extraPunch', e.x) }
+    }
+    this.extras = this.extras.filter((e) => e.t > 0)
+  }
+
+  /** 공격 판정이 엑스트라·구조물에 닿으면 (엑스트라는 한 방에 퇴장) */
+  hitWalls(att: Fighter, hb: { x: number; y: number; w: number; h: number }) {
+    const before = this.extras.length
+    this.extras = this.extras.filter((e) => e.owner === att.idx || !(hb.x < e.x + 8 && hb.x + hb.w > e.x - 8 && hb.y < e.y + 40))
+    if (this.extras.length < before) this.evt(1 - att.idx, 'extraDown', hb.x + hb.w / 2)
+    if (att.hitWallThisMove) return
+    for (const w of this.walls) if (w.owner !== att.idx && hb.x < w.x + WALL_HALF && hb.x + hb.w > w.x - WALL_HALF && hb.y < w.h) { att.hitWallThisMove = true; w.hp--; this.evt(w.owner, w.hp <= 0 ? 'wallbreak' : 'wallhit', w.x, w.hp); break }
+    for (const b of this.boxes) if (b.owner !== att.idx && hb.x < b.x + b.w / 2 && hb.x + hb.w > b.x - b.w / 2 && hb.y < b.y + b.h && hb.y + hb.h > b.y) { att.hitWallThisMove = true; b.hp--; this.evt(b.owner, b.hp <= 0 ? 'wallbreak' : 'wallhit', b.x, b.hp); break }
+    this.walls = this.walls.filter((w) => w.hp > 0); this.boxes = this.boxes.filter((b) => b.hp > 0)
+  }
+
+  blocksProjectile(owner: number, x: number, y: number) {
+    for (const w of this.walls) {
+      if (w.owner === owner || y >= w.h) continue
+      if (Math.abs(x - w.x) < WALL_HALF + 6) { w.hp--; this.evt(w.owner, w.hp <= 0 ? 'wallbreak' : 'wallhit', w.x, w.hp); this.walls = this.walls.filter((q) => q.hp > 0); return true }
+    }
+    const ex = this.extras.find((e) => e.owner !== owner && Math.abs(x - e.x) < 10 && y < e.y + 40)
+    if (ex) { this.extras = this.extras.filter((e) => e !== ex); this.evt(1 - owner, 'extraDown', ex.x); return true }
+    const d = this.host.fighters[1 - owner]
+    const m = d.move
+    if (m?.effect === 'noisewall' && d.state === 'attack' && d.moveFrame >= m.startup && d.moveFrame < m.startup + m.active && Math.abs(x - (d.x + d.facing * 24)) < 30) {
+      if (d.char.trait === 'rec') d.trait.res = Math.min(100, d.trait.res + 12)
+      this.evt(d.idx, 'noisewall', x)
+      return true
+    }
+    return false
+  }
+
+  /** 발밑 높이: 스테이지 발판 + 미술 구조물 (위에서 내려올 때만 올라섬) */
   floorAt(f: Fighter): number {
-    for (const b of this.boxes) if (Math.abs(f.x - b.x) < b.w / 2 + 3 && f.y >= b.h - 6) return b.h
-    return 0
+    let best = 0
+    const consider = (x: number, w: number, top: number) => {
+      if (Math.abs(f.x - x) >= w / 2 + 3) return
+      if (f.dropFrom >= 0 && top >= f.dropFrom - 1) return
+      if (f.y >= top - 7 && top > best) best = top
+    }
+    for (const p of this.host.platforms) consider(p.x, p.w, p.y)
+    for (const b of this.boxes) consider(b.x, b.w, b.y + b.h)
+    return best
   }
 
-  /** 세트벽: 몸이 못 지나가게 밀어내고, 날아오는 상대는 튕겨냄 */
   physics(prevX: [number, number]) {
     for (const w of this.walls) for (const f of this.host.fighters) {
-      if (f.y >= WALL_H) continue
+      if (f.y >= w.h) continue
       const half = f.char.hurt.w / 2 + WALL_HALF
       if (Math.abs(f.x - w.x) >= half) continue
       const side = prevX[f.idx] < w.x ? -1 : prevX[f.idx] > w.x ? 1 : (f.x < w.x ? -1 : 1)
@@ -424,8 +561,8 @@ export class TraitWorld {
       f.x = w.x + side * half
       if (f.state === 'knockback' && !f.wallBounced && speed > 1.2) {
         f.wallBounced = true
-        f.vx = side * Math.max(1.6, speed * 0.55)
-        f.vy = Math.max(f.vy, 3.4); f.y = Math.max(f.y, 0.01)
+        f.vx = side * Math.max(1.8, speed * 0.6)
+        f.vy = Math.max(f.vy, 4); f.y = Math.max(f.y, 0.01)
         f.juggles = Math.max(0, f.juggles - 1)
         w.hp--
         this.evt(w.owner, 'wallbounce', w.x, w.hp)
@@ -434,81 +571,43 @@ export class TraitWorld {
     this.walls = this.walls.filter((w) => w.hp > 0)
   }
 
-  /** 공격 판정이 남의 구조물에 닿으면 깎임 (기술마다 한 번) */
-  hitWalls(att: Fighter, hb: { x: number; y: number; w: number; h: number }) {
-    for (const s of [...this.walls.map((w) => ({ s: w, half: WALL_HALF, h: WALL_H })), ...this.boxes.map((b) => ({ s: b, half: b.w / 2, h: b.h }))]) {
-      if (s.s.owner === att.idx || att.hitWallThisMove) continue
-      if (hb.x < s.s.x + s.half && hb.x + hb.w > s.s.x - s.half && hb.y < s.h) {
-        att.hitWallThisMove = true
-        s.s.hp--
-        this.evt(s.s.owner, s.s.hp <= 0 ? 'wallbreak' : 'wallhit', s.s.x, s.s.hp)
-      }
-    }
-    this.walls = this.walls.filter((w) => w.hp > 0); this.boxes = this.boxes.filter((b) => b.hp > 0)
+  speedMul(f: Fighter) {
+    if (f.char.trait === 'lens') return [1.3, 1, 0.7][f.trait.lens]
+    if (f.char.trait === 'makeup' && f.trait.mode > 0) return 1.15
+    return 1
   }
-
-  /** 투사체가 막히는지: 상대 세트벽, 사운드 노이즈 월 */
-  blocksProjectile(owner: number, x: number, y: number) {
-    for (const w of this.walls) {
-      if (w.owner === owner || y >= WALL_H) continue
-      if (Math.abs(x - w.x) < WALL_HALF + 6) {
-        w.hp--
-        this.evt(w.owner, w.hp <= 0 ? 'wallbreak' : 'wallhit', w.x, w.hp)
-        this.walls = this.walls.filter((q) => q.hp > 0)
-        return true
-      }
-    }
-    const d = this.host.fighters[1 - owner]
-    const m = d.move
-    if (m?.effect === 'noisewall' && d.state === 'attack' && d.moveFrame >= m.startup && d.moveFrame < m.startup + m.active && Math.abs(x - (d.x + d.facing * 20)) < 22) {
-      if (d.char.trait === 'rec') d.trait.res = Math.min(100, d.trait.res + 15)
-      this.evt(d.idx, 'noisewall', x)
-      return true
-    }
-    return false
-  }
-
-  /** 촬영 광각: 이동속도 +20% */
-  speedMul(f: Fighter) { return f.char.trait === 'lens' && f.trait.lens === 0 ? 1.2 : 1 }
-  /** 약공격 연타 한도 (광각 3) */
-  maxLightChain(f: Fighter) { return f.char.trait === 'lens' && f.trait.lens === 0 ? 3 : 2 }
 
   resetRound() {
-    this.walls = []; this.boxes = []; this.sofas = []; this.echoes = []
+    this.walls = []; this.boxes = []; this.extras = []; this.delayed = []; this.fields = []; this.echoes = []; this.reflectors = []
     for (const f of this.host.fighters) {
       const t = f.trait
-      const keep = { lens: t.lens, slots: t.slots, observe: t.observe, res: f.char.trait === 'rec' ? t.res * 0.5 : undefined }
+      const keep = { lens: t.lens, role: t.role, slots: t.slots, observe: t.observe, res: f.char.trait === 'rec' ? t.res * 0.5 : undefined }
       f.trait = newTraitState(f.char.trait)
-      f.trait.lens = keep.lens; f.trait.slots = keep.slots; f.trait.observe = keep.observe
+      Object.assign(f.trait, { lens: keep.lens, role: keep.role, slots: keep.slots, observe: keep.observe })
       if (keep.res != null) f.trait.res = keep.res
     }
   }
 
   // ───────────── HUD ─────────────
-  /** 고유 게이지 (0~1)와 표시 글자 */
   gauge(f: Fighter): { v: number; text: string; color: number } {
     const t = f.trait
     switch (f.char.trait) {
-      case 'lens': return { v: t.lens === 2 ? t.focus / 100 : 0, text: `${LENSES[t.lens].name}${t.lens === 2 ? (t.focus >= 100 ? ' ◎초점!' : ` 초점 ${Math.round(t.focus)}`) : ''}`, color: t.focus >= 100 ? 0xff5470 : 0x5eead4 }
-      case 'mark': return { v: t.traps.length / 3, text: `콘티 ${'■'.repeat(t.traps.length)}${'□'.repeat(3 - t.traps.length)}`, color: 0xfacc15 }
-      case 'rec': return { v: t.res / 100, text: `사운드 ${Math.round(t.res)}`, color: t.res >= 70 ? 0xff5470 : 0x86efac }
-      case 'light': return { v: t.expose / 100, text: t.immune > 0 ? '노출 (면역)' : `상대 노출 ${Math.round(t.expose)}${t.spot > 0 ? ' · 스폿' : ''}`, color: 0xfde68a }
-      case 'wall': return { v: t.res / 100, text: `제작 ${Math.round(t.res)}`, color: 0xd6b27a }
-      case 'makeup': return { v: t.res / 100, text: `분장막 ${Math.round(t.res)}`, color: 0xff7eb6 }
-      case 'copy': {
-        const name = (i: number) => f.char.moves[`copy${i}`]?.name ?? '-'
-        return { v: t.slots.length / 2, text: `Q:${name(1)} W:${name(2)}`, color: 0x5eead4 }
-      }
+      case 'lens': return { v: t.lens === 2 ? t.focus / 100 : 0, text: `${LENSES[t.lens].name}${t.lens === 2 ? (t.focus >= 100 ? ' ◎풀초점' : ` 초점 ${Math.round(t.focus)}`) : ''}`, color: t.focus >= 100 ? 0xff5470 : 0x5eead4 }
+      case 'mark': { const n = this.extras.filter((e) => e.owner === f.idx).length; return { v: t.traps.length / 4, text: `콘티 ${t.traps.length} · 엑스트라 ${n}`, color: 0xfacc15 } }
+      case 'rec': return { v: t.res / 100, text: `사운드 ${Math.round(t.res)}`, color: t.res >= 60 ? 0xff5470 : 0x86efac }
+      case 'light': return { v: t.expose / 100, text: t.immune > 0 ? '노출 (면역)' : `상대 노출 ${Math.round(t.expose)}${t.gel > 0 ? ` · 젤×${t.gel}` : ''}${t.spot > 0 ? ' · 스폿' : ''}`, color: 0xfde68a }
+      case 'wall': return { v: t.res / 100, text: `제작 ${Math.round(t.res)} · 구조물 ${this.structCount(f)}`, color: 0xd6b27a }
+      case 'makeup': return { v: t.res / 100, text: `분장막 ${Math.round(t.res)}${t.mode > 0 ? ` · 크리처 ${Math.ceil(t.mode / 60)}s` : ''}`, color: 0xff7eb6 }
+      case 'copy': { const name = (i: number) => f.char.moves[`copy${i}`]?.name ?? '-'; return { v: t.slots.length / 2, text: `${ROLES[t.role].name} · C:${name(1)} →C:${name(2)}`, color: 0x5eead4 } }
     }
     return { v: 0, text: '', color: 0xffffff }
   }
 }
 
-/** 배우가 따라 한 기술: 원래 기술 + 피해 감소, 동작은 원래 캐릭터 것 */
 function copyMove(s: MoveData, id: string, srcChar: string, k: number): MoveData {
   return {
-    ...s, id, copyOf: srcChar, combo: false, cost: undefined, rank: 0,
-    cd: s.cd ?? 200,
+    ...s, id, copyOf: srcChar, cost: undefined, rank: 0, lvl: 3,
+    cd: s.cd ?? 150,
     anim: `${srcChar}:${s.anim ?? s.id}`,
     damage: Math.round(s.damage * k), chip: Math.round(s.chip * k),
     projectile: s.projectile ? { ...s.projectile, damage: Math.round(s.projectile.damage * k) } : undefined,
@@ -517,59 +616,9 @@ function copyMove(s: MoveData, id: string, srcChar: string, k: number): MoveData
 
 const clampX = (x: number) => Math.max(24, Math.min(STAGE_W - 24, Math.round(x)))
 
-/** CPU가 어떤 스킬 버튼을 누를지 (캐릭터별 판단) */
-export function aiSkill(me: Fighter, opp: Fighter, r: () => number): 'trait' | 'special' | 'skill2' | null {
-  const w = me.world
-  if (!w) return null
-  const t = me.trait
-  const dist = Math.abs(opp.x - me.x)
-  const ok = (id: string) => { const m = me.char.moves[w.remapMove(me, id)]; return !!m && (me.cds[cdKey(m.id)] ?? 0) <= 0 && w.canUse(me, m) && (!m.cost || me.meter >= m.cost) }
-  const E = ok('trait'), Q = ok('special1'), W = ok('special2')
-  switch (me.char.trait) {
-    case 'lens':
-      // 멀면 망원(2), 붙으면 광각(0)이 목표: 목표 렌즈가 아닐 때만, 가끔
-      if (E && r() < 0.35 && ((dist > 130 && t.lens !== 2) || (dist < 45 && t.lens !== 0))) return 'trait'
-      if (Q && (t.lens === 2 ? dist > 80 : dist < 80)) return 'special'
-      if (W && r() < 0.4) return 'skill2'
-      return null
-    case 'mark':
-      if (E && t.traps.some((x) => Math.abs(opp.x - x) < 36)) return 'trait'
-      if (Q && t.traps.length < 3 && dist > 60) return 'special'
-      if (W && opp.state === 'attack' && dist < 70 && r() < 0.5) return 'skill2'
-      return null
-    case 'rec':
-      if (E && t.res >= 60 && dist < 30 + t.res * 0.7) return 'trait'
-      if (W && opp.state === 'attack' && dist < 90 && r() < 0.4) return 'skill2'
-      if (Q && dist > 90) return 'special'
-      return null
-    case 'light':
-      if (E && dist < 200 && r() < 0.6) return 'trait'
-      if (Q && dist < 90) return 'special'
-      if (W && dist > 70 && dist < 160) return 'skill2'
-      return null
-    case 'wall':
-      if (E && r() < 0.25) return 'trait'
-      if (W && dist > 90 && r() < 0.5) return 'skill2'
-      if (Q && r() < 0.3) return 'special'
-      return null
-    case 'makeup':
-      if (E && t.res >= 60 && dist < 60) return 'trait'
-      if (Q && t.res < 40) return 'special'
-      if (W && dist > 60 && dist < 160) return 'skill2'
-      return null
-    case 'copy':
-      if (E && r() < 0.6) return 'trait'
-      if (Q && dist < 120) return 'special'
-      if (W && (opp.state === 'attack' || t.slots.length >= 2) && r() < 0.5) return 'skill2'
-      return null
-  }
-  return null
-}
-
-/** 쿨타임 칸: 렌즈 변형·복사 칸은 같은 버튼(Q·W)과 공유 */
+/** 쿨타임 칸: 같은 버튼·방향(모드 변형 포함)은 쿨타임 공유 */
 export function cdKey(id: string): string {
-  if (id.startsWith('special1') || id === 'copy1') return 'special1'
-  if (id.startsWith('special2') || id === 'copy2') return 'special2'
-  if (id.startsWith('trait')) return 'trait'
-  return id
+  if (id === 'copy1') return 'C_n'
+  if (id === 'copy2') return 'C_f'
+  return id.split('~')[0]
 }

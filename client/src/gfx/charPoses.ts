@@ -4,30 +4,11 @@
 import type { Pose } from './Painter'
 import { ANIMS, up, all, type AnimDef } from './poses'
 import { CHARACTERS, KIT_OF } from '../config/characters'
+import type { CharacterData, MoveData } from '../core/types'
 
-type V = [number, number]
+import { mk, blink, anim, type V } from './rig'
+import { motion } from './motions'
 
-function elbow(sh: V, hd: V): V {
-  const vx = hd[0] - sh[0], vy = hd[1] - sh[1]
-  const len = Math.hypot(vx, vy) || 1
-  let px = -vy / len, py = vx / len
-  if (py < 0) { px = -px; py = -py }
-  if (Math.abs(py) < 0.35 && px > 0) px = -px
-  return [Math.round((sh[0] + hd[0]) / 2 + px * 2), Math.round((sh[1] + hd[1]) / 2 + py * 2)]
-}
-const knee = (hip: V, ft: V): V => [Math.round((hip[0] + ft[0]) / 2 + 2), Math.round((hip[1] + ft[1]) / 2 - 1)]
-
-/** 손·발·몸통만 적으면 나머지 관절을 채워 줌 */
-function mk(o: Partial<Pose>): Pose {
-  const sh = o.sh ?? (o.head ? [o.head[0] - 1, o.head[1] + 15] as V : [32, 32] as V)
-  const head = o.head ?? [sh[0] + 1, sh[1] - 15] as V
-  const hip = o.hip ?? [sh[0] - 1, sh[1] + 11] as V
-  const ftF = o.ftF ?? [37, 58] as V, ftB = o.ftB ?? [25, 58] as V
-  const hdF = o.hdF ?? [39, 41] as V, hdB = o.hdB ?? [26, 39] as V
-  return { prop: 'none', ...o, head, sh, hip, ftF, ftB, hdF, hdB, elF: o.elF ?? elbow(sh, hdF), elB: o.elB ?? elbow(sh, hdB), knF: o.knF ?? knee(hip, ftF), knB: o.knB ?? knee(hip, ftB) }
-}
-const blink = (p: Pose): Pose => ({ ...p, face: 'blink' })
-const anim = (fps: number, loop: boolean, ...frames: Pose[]): AnimDef => ({ frames, fps, loop })
 const idle4 = (p: Pose) => anim(4, true, p, p, up(p, 0, 1), up(blink(p), 0, 1))
 /** 웅크린 몸통 */
 const low = { sh: [32, 38] as V, head: [34, 23] as V, hip: [30, 48] as V }
@@ -563,24 +544,49 @@ const ACTOR: Record<string, AnimDef> = {
 
 export const CHAR_ANIMS: Record<string, Record<string, AnimDef>> = { director: DIRECTOR, sound: SOUND, gaffer: GAFFER, art: ART, makeup: MAKEUP, actor: ACTOR }
 
+/** 기술이 쓰는 동작 이름 (anim이 없으면 칸에 맞는 기본 동작) */
+export function animOf(m: MoveData): string {
+  if (m.anim) return m.anim
+  const [slot] = m.id.split('~')
+  const [btn, dir] = slot.split('_')
+  if (dir === 'air' || dir === 'aird') return btn === 'A' ? 'jl' : 'jh'
+  if (dir === 'd') return btn === 'A' ? 'lowjab' : 'sweep'
+  if (dir === 'u') return 'upper'
+  if (dir === 'dash') return 'rush'
+  return ({ A: 'light', B: 'heavy', C: 'special1', D: 'trait', R: 'super' } as Record<string, string>)[btn] ?? 'light'
+}
+
+/** 그 캐릭터의 기본 동작 세트 + 기술에서 쓰는 과장 동작 템플릿 */
+function ownAnims(c: CharacterData): Record<string, AnimDef> {
+  const out: Record<string, AnimDef> = { ...ANIMS, ...(CHAR_ANIMS[c.id] ?? {}) }
+  for (const m of Object.values(c.moves)) {
+    const a = m.anim
+    if (a?.startsWith('t:') && !out[a]) { const d = motion(a); if (d) out[a] = d }
+  }
+  return out
+}
+
 /** 배우가 따라 할 수 있는 다른 캐릭터 동작: "캐릭터:동작" 이름, 그 캐릭터 장비로 그림 */
 function copyAnims(): Record<string, AnimDef> {
   const out: Record<string, AnimDef> = {}
   for (const c of CHARACTERS) {
     if (c.id === 'actor') continue
-    const own = { ...ANIMS, ...(CHAR_ANIMS[c.id] ?? {}) }
+    const own = ownAnims(c)
     for (const m of Object.values(c.moves)) {
-      if (!/^(special1|special2|upper|zoompunch|spin|rush|flash|super)/.test(m.id)) continue
-      const name = m.anim ?? m.id
-      if (own[name]) out[`${c.id}:${name}`] = { ...own[name], kit: KIT_OF[c.id] }
+      if (!(m.combo || m.id.startsWith('C_') || m.id === 'R')) continue
+      const def = own[animOf(m)]
+      if (def) out[`${c.id}:${m.anim ?? m.id}`] = { ...def, kit: KIT_OF[c.id] }
     }
   }
   return out
 }
 
-/** 그 캐릭터가 쓰는 동작 전체 (공용 동작 + 전용 동작) */
-let copyCache: Record<string, AnimDef> | null = null
+/** 그 캐릭터가 쓰는 동작 전체 (공용 동작 + 전용 동작 + 템플릿 [+ 배우: 따라 하기]) */
+const cache: Record<string, Record<string, AnimDef>> = {}
 export function animsFor(charId: string): Record<string, AnimDef> {
-  if (charId === 'actor') return { ...ANIMS, ...ACTOR, ...(copyCache ??= copyAnims()) }
-  return { ...ANIMS, ...(CHAR_ANIMS[charId] ?? {}) }
+  const hit = cache[charId]
+  if (hit) return hit
+  const c = CHARACTERS.find((x) => x.id === charId)
+  const own = c ? ownAnims(c) : { ...ANIMS }
+  return (cache[charId] = charId === 'actor' ? { ...own, ...copyAnims() } : own)
 }

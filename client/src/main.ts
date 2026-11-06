@@ -9,7 +9,7 @@ import { FightScene } from './scenes/FightScene'
 import { StageScene } from './scenes/StageScene'
 import { PromotionScene } from './scenes/PromotionScene'
 import { Controls } from './ui/Controls'
-import { STAGE_W, STAGE_H } from './core/types'
+import { VIEW_W, STAGE_H } from './core/types'
 import { unlockAudio } from './audio/Sfx'
 
 const controls = new Controls(document.getElementById('pad')!)
@@ -17,7 +17,7 @@ const controls = new Controls(document.getElementById('pad')!)
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: STAGE_W,
+  width: VIEW_W,
   height: STAGE_H,
   backgroundColor: '#0d0b17',
   pixelArt: true,
@@ -51,3 +51,6 @@ window.addEventListener('resize', fitViewport)
 window.visualViewport?.addEventListener('resize', fitViewport)
 window.addEventListener('orientationchange', () => { fitViewport(); setTimeout(fitViewport, 300); setTimeout(fitViewport, 800) })
 document.addEventListener('fullscreenchange', () => setTimeout(fitViewport, 100))
+
+// 디버그(?debug): 브라우저 자동 점검용 핸들
+if (location.search.includes('debug')) (window as unknown as { __game?: Phaser.Game }).__game = game

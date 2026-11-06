@@ -1,4 +1,4 @@
-// 캐릭터 고유 시스템 점검 (패시브·Q·W·E·R)
+// 캐릭터 고유 특성 점검 (D 특성기·C 직업기·특성 모드)
 import { describe, expect, it } from 'vitest'
 import { Match } from '../src/core/Match'
 import { getCharacter } from '../src/config/characters'
@@ -19,71 +19,67 @@ function run(m: Match, map: Record<number, Partial<InputState>>, n = 90, p2: Rec
 const hold = (n: number, o: Partial<InputState>) => Object.fromEntries(Array.from({ length: n }, (_, i) => [i, o]))
 const kinds = (ev: MatchEvent[]) => ev.filter((e) => e.type === 'trait').map((e) => (e as { kind: string }).kind)
 
-describe('촬영감독: 렌즈 3단 전환', () => {
-  it('E로 표준 → 망원 → 광각, 렌즈마다 Q 기술이 바뀐다', () => {
+describe('촬영감독: 렌즈 3단 (광각 돌격 ↔ 망원 저격)', () => {
+  it('D← 망원, D→ 광각: 렌즈마다 같은 버튼이 다른 기술이 된다', () => {
     const m = fight('dp'); const f = m.fighters[0]
-    expect(m.world.remapMove(f, 'special1')).toBe('special1')
-    run(m, { 0: { trait: true } }, 100); expect(f.trait.lens).toBe(2)
-    expect(m.world.remapMove(f, 'special1')).toBe('special1_tele')
-    run(m, { 0: { trait: true } }, 100); expect(f.trait.lens).toBe(0)
-    expect(m.world.remapMove(f, 'special1')).toBe('special1_wide')
+    expect(m.world.remapMove(f, 'C_n')).toBe('C_n')
+    run(m, { 0: { trait: true, left: true } }, 60); expect(f.trait.lens).toBe(2)
+    expect(m.world.remapMove(f, 'C_n')).toBe('C_n~tele')
+    expect(m.world.remapMove(f, 'B_n')).toBe('B_n~tele')
+    expect(m.world.speedMul(f)).toBeLessThan(1)
+    run(m, { 0: { trait: true, right: true } }, 60); expect(f.trait.lens).toBe(0)
+    expect(m.world.remapMove(f, 'C_n')).toBe('C_n~wide')
     expect(m.world.speedMul(f)).toBeGreaterThan(1)
   })
-  it('망원으로 가만히 있으면 초점이 차고, 가득 찬 뒤 첫 공격은 크리티컬', () => {
+  it('망원으로 가만히 있으면 초점이 차고, 가득 찬 뒤 원거리 공격은 크리티컬', () => {
     const m = fight('dp'); const [f, d] = m.fighters
-    run(m, { 0: { trait: true } }, 90)
+    run(m, { 0: { trait: true, left: true } }, 120)
     expect(f.trait.focus).toBe(100)
-    d.x = f.x + 60
-    const ev = run(m, { 0: { heavy: true } }, 40)
+    d.x = f.x + 300
+    const ev = run(m, { 0: { special: true } }, 60)
     const hit = ev.find((e) => e.type === 'hit' && e.attacker === 0) as Extract<MatchEvent, { type: 'hit' }> | undefined
     expect(hit?.crit).toBe(true)
-    expect(f.trait.focus).toBe(0)
   })
 })
 
-describe('연출감독: 콘티·NG!·큐 사인·리테이크', () => {
-  it('Q 콘티를 밟으면 묶이고, E 큐 사인으로 터진다', () => {
+describe('연출감독: 콘티·엑스트라·액션!·NG!', () => {
+  it('↓C 콘티를 밟으면 묶이고, D 액션!으로 터진다', () => {
     const m = fight('director'); const [f, d] = m.fighters
-    run(m, { 0: { special: true } }, 30)
+    run(m, { 0: { special: true, down: true } }, 30)
     expect(f.trait.traps.length).toBe(1)
     const trap = f.trait.traps[0]
     d.x = trap + 30
     run(m, {}, 40, hold(40, { left: true }))
     expect(d.snare).toBeGreaterThan(0)
-    // 상대를 멀리 보내고 콘티를 하나 더 깐 뒤, 상대가 그 위에 있을 때 큐!
-    d.x = f.x + 150; d.snare = 0
-    run(m, { 0: { special: true } }, 80)
-    const t2 = f.trait.traps[0]
-    d.x = t2 + 10; d.snare = 30
+    d.x = f.trait.traps[0] ?? trap; d.snare = 30
+    if (!f.trait.traps.length) f.trait.traps = [d.x]
     const hp = d.hp
     const ev = run(m, { 0: { trait: true } }, 30)
     expect(kinds(ev)).toContain('cue')
     expect(d.hp).toBeLessThan(hp)
   })
-  it('W NG!: 받아치기 중 맞으면 공격이 무효, 상대가 굳는다', () => {
+  it('C 엑스트라가 나와서 상대를 때린다', () => {
+    const m = fight('director'); const [, d] = m.fighters
+    const ev = run(m, { 0: { special: true } }, 30)
+    expect(kinds(ev)).toContain('extra')
+    expect(m.world.extras.length).toBe(1)
+    d.x = m.world.extras[0].x + 20
+    const hp = d.hp
+    run(m, {}, 120)
+    expect(d.hp).toBeLessThan(hp)
+  })
+  it('↓D NG!: 받아치기 중 맞으면 공격이 무효', () => {
     const m = fight('director', 'dp'); const [f, d] = m.fighters
     d.x = f.x + 30
     const hp = f.hp
-    const ev = run(m, { 0: { skill2: true } }, 30, { 2: { light: true } })
+    const ev = run(m, { 0: { trait: true, down: true } }, 30, { 4: { light: true } })
     expect(kinds(ev)).toContain('parry')
     expect(f.hp).toBe(hp)
-    expect(['hit', 'idle', 'walk']).toContain(d.state)
-  })
-  it('R 리테이크: 상대를 2초 전 자리로 되돌리고 멈춘다', () => {
-    const m = fight('director', 'dp'); const [f, d] = m.fighters
-    const old = d.x
-    run(m, {}, 130, hold(130, { left: true }))
-    expect(d.x).toBeLessThan(old - 50)
-    f.meter = 100
-    const ev = run(m, { 0: { super: true } }, 40)
-    expect(kinds(ev)).toContain('retake')
-    expect(Math.abs(d.x - old)).toBeLessThan(40)
-    expect(d.frozen).toBeGreaterThan(0)
   })
 })
 
-describe('사운드감독: 게인 업 → SOUND OVER', () => {
-  it('맞을수록 게이지가 차고, 많이 모을수록 SOUND OVER가 세다', () => {
+describe('사운드감독: 게인 → SOUND OVER, 여의봉 붐', () => {
+  it('많이 모을수록 SOUND OVER가 세다', () => {
     const power = (res: number) => {
       const m = fight('sound', 'dp'); const [s, d] = m.fighters
       s.trait.res = res; d.x = s.x + 40
@@ -93,54 +89,50 @@ describe('사운드감독: 게인 업 → SOUND OVER', () => {
     }
     expect(power(40)).toBeGreaterThan(0)
     expect(power(100)).toBeGreaterThan(power(40))
+  })
+  it('C를 누르고 있으면 붐대가 길어진다 (여의봉)', () => {
+    const reach = (holdN: number) => {
+      const m = fight('sound', 'dp'); const [s, d] = m.fighters
+      d.x = s.x + 300
+      run(m, hold(holdN, { special: true }), holdN + 30)
+      return d.hp < d.maxHp
+    }
+    expect(reach(2)).toBe(false)
+    expect(reach(50)).toBe(true)
+  })
+  it('↓D 노이즈 월이 투사체를 막는다', () => {
     const m = fight('sound', 'dp'); const [s, d] = m.fighters
-    d.x = s.x + 30
-    run(m, {}, 40, { 0: { heavy: true } })
-    expect(s.trait.res).toBeGreaterThan(10)
-  })
-  it('게이지 30 미만이면 SOUND OVER가 안 나간다', () => {
-    const m = fight('sound'); m.fighters[0].trait.res = 10
-    const ev = run(m, { 0: { trait: true } }, 20)
-    expect(ev.some((e) => e.type === 'move' && e.fighter === 0)).toBe(false)
-  })
-  it('W 노이즈 월이 투사체를 막는다', () => {
-    const m = fight('sound', 'director'); const [s, d] = m.fighters
-    d.x = s.x + 90
+    d.trait.lens = 2; d.x = s.x + 200
     const hp = s.hp
-    run(m, { 6: { skill2: true } }, 60, { 0: { special: true } })
-    // 연출 Q는 콘티라 투사체가 아님 → 촬영 망원 스나이프로 확인
-    const m2 = fight('sound', 'dp'); const [s2, d2] = m2.fighters
-    d2.trait.lens = 2; d2.x = s2.x + 100
-    const hp2 = s2.hp
-    const ev = run(m2, { 10: { skill2: true } }, 60, { 0: { special: true } })
+    const ev = run(m, { 4: { trait: true, down: true } }, 70, { 0: { special: true } })
     expect(kinds(ev)).toContain('noisewall')
-    expect(s2.hp).toBe(hp2)
     expect(s.hp).toBe(hp)
   })
 })
 
-describe('조명감독: 노출 → 기절', () => {
+describe('조명감독: 노출 → 기절, 레이저', () => {
   it('빛 기술로 노출이 쌓이고 100이 되면 상대가 기절(별)', () => {
     const m = fight('gaffer', 'dp'); const [g, d] = m.fighters
-    d.x = g.x + 50
-    g.trait.expose = 80
-    const ev = run(m, { 0: { special: true } }, 40)
+    d.x = g.x + 200
+    g.trait.expose = 85
+    const ev = run(m, { 0: { special: true } }, 50)
     expect(kinds(ev)).toContain('stun')
     expect(d.dizzy).toBeGreaterThan(0)
   })
-  it('W 백라이트는 상대를 내 쪽으로 끌어온다', () => {
-    const m = fight('gaffer', 'dp'); const [g, d] = m.fighters
-    d.x = g.x + 120
-    run(m, { 0: { skill2: true } }, 40)
-    expect(d.x).toBeLessThan(g.x + 120)
+  it('D 암전 블링크로 순간이동', () => {
+    const m = fight('gaffer', 'dp'); const [g] = m.fighters
+    const x0 = g.x
+    const ev = run(m, { 0: { trait: true } }, 30)
+    expect(kinds(ev)).toContain('blink')
+    expect(Math.abs(g.x - x0)).toBeGreaterThan(60)
   })
 })
 
 describe('미술감독: 제작 포인트 → 구조물', () => {
-  it('Q 애플박스 위에 올라서면 높아지고, 포인트가 모자라면 못 만든다', () => {
+  it('C 애플박스 위에 올라서면 높아지고, 포인트가 모자라면 못 만든다', () => {
     const m = fight('art', 'dp'); const [a] = m.fighters
     a.trait.res = 60
-    run(m, { 0: { special: true } }, 30)
+    run(m, { 0: { special: true } }, 40)
     expect(m.world.boxes.length).toBe(1)
     a.x = m.world.boxes[0].x
     run(m, { 0: { up: true } }, 70)
@@ -149,17 +141,17 @@ describe('미술감독: 제작 포인트 → 구조물', () => {
     run(m, { 0: { special: true } }, 80)
     expect(m.world.boxes.length).toBe(1)
   })
-  it('E 소파 드롭이 상대 머리 위로 떨어진다', () => {
+  it('↓C 소파 드롭이 상대 머리 위로 떨어진다', () => {
     const m = fight('art', 'dp'); const [a, d] = m.fighters
     a.trait.res = 100
     const hp = d.hp
-    const ev = run(m, { 0: { trait: true } }, 90)
-    expect(kinds(ev)).toContain('sofa')
+    const ev = run(m, { 0: { special: true, down: true } }, 90)
+    expect(kinds(ev)).toContain('sofaWarn')
     expect(d.hp).toBeLessThan(hp)
   })
 })
 
-describe('분장실장: 분장막', () => {
+describe('분장실장: 분장막·디버프·변신', () => {
   it('분장막이 피해를 흡수한다', () => {
     const hurt = (res: number) => {
       const m = fight('makeup', 'dp'); const [k, d] = m.fighters
@@ -170,32 +162,40 @@ describe('분장실장: 분장막', () => {
     }
     expect(hurt(100)).toBeLessThan(hurt(0))
   })
-  it('E 클렌징: 분장막이 많을수록 세고, 막아도 들어간다', () => {
-    const power = (res: number) => {
-      const m = fight('makeup', 'dp'); const [k, d] = m.fighters
-      k.trait.res = res; d.x = k.x + 30
-      const hp = d.hp
-      run(m, { 0: { trait: true } }, 40, hold(40, { right: true }))
-      return hp - d.hp
-    }
-    expect(power(30)).toBeGreaterThan(0)
-    expect(power(100)).toBeGreaterThan(power(30))
+  it('C 상처분장 브러시를 맞으면 출혈', () => {
+    const m = fight('makeup', 'dp'); const [k, d] = m.fighters
+    d.x = k.x + 120
+    run(m, { 0: { special: true } }, 60)
+    expect(d.bleed).toBeGreaterThan(0)
+  })
+  it('D 크리처 변신: 기술이 크리처 버전으로 바뀐다', () => {
+    const m = fight('makeup', 'dp'); const [k] = m.fighters
+    k.trait.res = 100
+    run(m, { 0: { trait: true } }, 50)
+    expect(k.trait.mode).toBeGreaterThan(0)
+    expect(m.world.remapMove(k, 'A_n')).toBe('A_n~creature')
   })
 })
 
-describe('배우: 관찰 → 복사', () => {
-  it('상대 스킬을 두 번 보면 Q 칸에 복사되고, Q를 누르면 그 기술이 나간다', () => {
+describe('배우: 관찰 → 복사, 배역 전환', () => {
+  it('상대 직업기를 두 번 보면 C 칸에 복사되고, C를 누르면 그 기술이 나간다', () => {
     const m = fight('actor', 'gaffer'); const [a, g] = m.fighters
-    g.x = a.x + 100
-    run(m, {}, 200, { 0: { special: true }, 170: { special: true } })
+    g.x = a.x + 300
+    run(m, {}, 200, { 0: { special: true }, 110: { special: true } })
     expect(a.char.moves.copy1?.copyOf).toBe('gaffer')
-    expect(m.world.remapMove(a, 'special1')).toBe('copy1')
+    expect(m.world.remapMove(a, 'C_n')).toBe('copy1')
     const ev = run(m, { 0: { special: true } }, 30)
     expect(ev.some((e) => e.type === 'move' && e.fighter === 0 && e.move === 'copy1')).toBe(true)
   })
-  it('R 명연기는 지금 상대의 필살기를 흉내 낸다', () => {
+  it('R 명연기는 지금 상대의 궁극기를 흉내 낸다', () => {
     const m = fight('actor', 'director'); const a = m.fighters[0]
-    expect(m.world.remapMove(a, 'super')).toBe('copyR')
-    expect(a.char.moves.copyR?.effect).toBe('retake')
+    expect(m.world.remapMove(a, 'R')).toBe('copyR')
+    expect(a.char.moves.copyR?.copyOf).toBe('director')
+  })
+  it('D 배역 전환: 사극이면 기본기가 사극 버전', () => {
+    const m = fight('actor', 'dp'); const a = m.fighters[0]
+    run(m, { 0: { trait: true } }, 30)
+    expect(a.trait.role).toBe(1)
+    expect(m.world.remapMove(a, 'B_n')).toBe('B_n~sageuk')
   })
 })

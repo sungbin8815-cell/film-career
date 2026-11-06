@@ -1,6 +1,6 @@
 // 스테이지를 깨면: 승진 화면 (새 직급, 새로 생긴 기술, 능력치 상승) / 마지막이면 엔딩
 import Phaser from 'phaser'
-import { getCharacter, BTN_LABEL, RANK_MUL } from '../config/characters'
+import { getCharacter, howTo, RANK_MUL } from '../config/characters'
 import { STAGES, saveProgress } from '../config/stages'
 import { animKey } from '../gfx/TextureFactory'
 import { FH, FOOT_Y } from '../gfx/Painter'
@@ -50,15 +50,10 @@ export class PromotionScene extends Phaser.Scene {
     text(this, W / 2 + 60, 70, `${c.dept}  ${old}  ▶  ${now}`, 14, COLOR.ink)
     // 새로 생긴 기술
     const unlocked = Object.values(c.moves).filter((m) => (m.rank ?? 0) === newRank)
-    const howTo = (id: string) => {
-      const k = c.combos.find((x) => x.move === id)
-      if (k) return k.seq.map((t) => BTN_LABEL[t]).join(' ')
-      return ({ special1: '특', special2: '↓+특', super: '필살' } as Record<string, string>)[id] ?? ''
-    }
     text(this, W / 2 + 60, 98, unlocked.length ? '새 기술을 배웠다!' : '능력치가 올랐다!', 12, COLOR.accent)
-    unlocked.forEach((m, i) => text(this, W / 2 + 60, 118 + i * 16, `${howTo(m.id)}  ▶  ${m.name}${m.cost ? ` (SP ${m.cost})` : ''}`, 11, COLOR.ink))
+    unlocked.slice(0, 6).forEach((m, i) => text(this, W / 2 + 60, 118 + i * 16, `${howTo(c, m.id)}  ▶  ${m.name}${m.cost ? ` (SP ${m.cost})` : ''}`, 11, COLOR.ink))
     const up = Math.round((RANK_MUL[newRank] / RANK_MUL[this.cleared] - 1) * 100)
-    text(this, W / 2 + 60, 128 + unlocked.length * 16, `체력·공격력 +${up}%`, 11, COLOR.blue)
+    text(this, W / 2 + 60, 128 + Math.min(6, unlocked.length) * 16, `${unlocked.length > 6 ? `외 ${unlocked.length - 6}개 · ` : ''}체력·공격력 +${up}%`, 11, COLOR.blue)
     button(this, W / 2 + 60, 240, 170, 22, `${STAGES[newRank].name} 으로 ▶`, () => this.scene.start('Stage', { char: c.id }), { color: 0x6a2c91 })
   }
 }
