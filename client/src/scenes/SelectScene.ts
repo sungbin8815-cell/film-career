@@ -7,6 +7,7 @@ import { FH, FOOT_Y } from '../gfx/Painter'
 import { button, text, COLOR, type Btn } from '../ui/widgets'
 import { sfx } from '../audio/Sfx'
 import type { CharacterData } from '../core/types'
+import { TRAIT_INFO } from '../core/Traits'
 
 type Mode = 'vsai' | 'view'
 
@@ -81,14 +82,14 @@ export class SelectScene extends Phaser.Scene {
     if (p2) spr.setFlipX(true)
     L.add(spr)
     L.add(text(this, x0 + 74, 36, c.name, 14, c.color, 0))
-    L.add(text(this, x0 + 74, 51, `${c.nameEn} · ${c.dept}`, 11, COLOR.dim, 0))
+    L.add(text(this, x0 + 74, 51, `${c.nameEn} · 체력 ${c.hp}`, 11, COLOR.dim, 0))
     const stat = (label: string, v: number, row: number) => {
       const yy = 65 + row * 12
       L.add(text(this, x0 + 74, yy, label, 11, COLOR.dim, 0))
       for (let k = 0; k < 5; k++) L.add(this.add.rectangle(x0 + 122 + k * 13, yy, 11, 6, k < v ? hex(c.color) : 0x0a0812))
     }
     stat('공격', c.stats.power, 0); stat('속도', c.stats.speed, 1); stat('사거리', c.stats.reach, 2)
-    L.add(text(this, x0 + 74, 101, `체력 ${c.hp}`, 11, COLOR.dim, 0))
+    L.add(text(this, x0 + 74, 101, `고유: ${TRAIT_INFO[c.trait].name}`, 11, '#5eead4', 0))
     L.add(text(this, x0 + 104, 114, c.desc, 11, COLOR.ink).setWordWrapWidth(206).setAlign('center'))
     // 기술표: 특수·필살 + 콤보 6개 (한 줄씩)
     const m = c.moves

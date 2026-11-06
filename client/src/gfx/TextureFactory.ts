@@ -2,7 +2,7 @@
 // 실제 스프라이트 PNG로 바꿀 때는 이 파일에서 같은 키(예: 'dp', 'dp_alt')로 load.spritesheet 하면 됩니다.
 import Phaser from 'phaser'
 import { paint, paintProjectile, FW, FH, KITS, type Costume } from './Painter'
-import { ANIMS } from './poses'
+import { animsFor } from './charPoses'
 import { KIT_OF } from '../config/characters'
 
 const E = '#1b1325'
@@ -49,6 +49,7 @@ export function ensureFighterTexture(scene: Phaser.Scene, key: string) {
   if (scene.textures.exists(key)) return
   const costume = COSTUMES[key]
   {
+    const ANIMS = animsFor(charOf(key))
     const all = Object.entries(ANIMS).flatMap(([name, a]) => a.frames.map((p, i) => ({ name: `${name}_${i}`, pose: p })))
     const sheet = document.createElement('canvas')
     sheet.width = FW * all.length; sheet.height = FH

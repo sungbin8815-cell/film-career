@@ -1,6 +1,7 @@
 // 한 명의 파이터: 상태 머신 + 물리. Phaser 없음.
 import type { Btn, CharacterData, FighterStateName, InputState, MoveData, MoveId, Rect } from './types'
 import { emptyInput, STAGE_W } from './types'
+import { newTraitState, type TraitWorld } from './Traits'
 
 export const METER_MAX = 100
 const BUFFER = 8          // 입력 선입력 허용 프레임
@@ -36,6 +37,13 @@ export class Fighter {
   private lastTap: { dir: number; frame: number } = { dir: 0, frame: -99 }
   private running = false
   frame = 0
+  /** 직업 특성 상태 + 공유 세계 (Match가 연결) */
+  trait = newTraitState()
+  world?: TraitWorld
+  armorLeft = 0
+  wallBounced = false
+  hitWallThisMove = false
+  pendingTrait: string | null = null
 
   readonly maxHp: number
   readonly dmgMul: number
@@ -64,6 +72,7 @@ export class Fighter {
 
   setState(s: FighterStateName) {
     if (this.state !== s) this.stateFrame = 0
+    if (s === 'knockback' && this.state !== 'knockback') this.wallBounced = false
     this.state = s
   }
 
@@ -101,6 +110,19 @@ export class Fighter {
   private record(inp: InputState) {
     for (const k of ATTACK_KEYS) if (inp[k] && !this.prev[k]) this.pressedAt[k] = this.frame
     for (const k of ATTACK_KEYS) { const at = this.pressedAt[k]; if (at != null && this.frame - at > BUFFER) delete this.pressedAt[k] }
+    if (inp.trait && !this.prev.trait) this.pressedAt.trait = this.frame
+    if (this.pressedAt.trait != null && this.frame - this.pressedAt.trait > BUFFER) delete this.pressedAt.trait
+  }
+
+  /** 고유 버튼: 서 있을 때만. 특성마다 낼 기술(trait / trait2)이 다름 */
+  private tryTrait(): boolean {
+    if (this.pressedAt.trait == null || !this.world || !this.grounded) return false
+    const id = this.world.traitMove(this)
+    if (!id || !this.char.moves[id]) return false
+    delete this.pressedAt.trait
+    this.startMove(id, 'L', false)
+    this.chainBtns = []
+    return true
   }
 
   /** 선입력된 공격 버튼들 → 버튼 토큰, 먼저 누른 순 (L H S X, ↓와 같이면 dL dH dS) */
@@ -180,7 +202,9 @@ export class Fighter {
     if (m.cost) this.meter -= m.cost
     this.lightChain = id === 'light' ? (isCancel && this.move?.id === 'light' ? this.lightChain + 1 : 1) : 0
     this.chainBtns = isCancel ? [...this.chainBtns, b] : [b]
-    this.move = m
+    this.move = this.world ? this.world.modifyMove(this, m) : m
+    this.armorLeft = this.move.armor ?? 0
+    this.hitWallThisMove = false
     this.moveFrame = 0
     this.hitsThisMove = 0
     this.hitConfirmed = false
@@ -233,11 +257,12 @@ export class Fighter {
         if (this.grounded && this.stun <= 0) this.facing = opp.x >= this.x ? 1 : -1  // 넘어온 상대도 막도록 방향 갱신
         if (this.stun > 0) { this.stun--; break }
         if (!inp.guard || !this.grounded) this.setState('idle')
-        else if (this.tryStartMove(inp)) break
+        else if (this.tryStartMove(inp) || this.tryTrait()) break
         break
       case 'attack': {
         const m = this.move!
         this.moveFrame++
+        if (m.id.startsWith('trait') && this.moveFrame === m.startup) this.pendingTrait = m.id
         if (m.dash && this.moveFrame >= m.startup && this.moveFrame < m.startup + m.active) this.vx = this.facing * m.dash
         else if (this.grounded) this.vx *= 0.7
         // 콤보 잇기: 판정이 나온 뒤부터 (맞히면 일반 캔슬, 커맨드 콤보는 빗나가도 OK)
@@ -250,6 +275,7 @@ export class Fighter {
         if (this.grounded) {
           this.facing = opp.x >= this.x ? 1 : -1
           if (this.tryStartMove(inp)) break
+          if (this.tryTrait()) break
           if (inp.guard) { this.setState('guard'); this.vx = 0; break }
           if (inp.up) {
             this.vy = this.char.jumpV

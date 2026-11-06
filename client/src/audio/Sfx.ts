@@ -52,6 +52,7 @@ const SOUNDS: Record<string, () => void> = {
   wave: () => { tone(1800, 0.35, 'sine', 0.08, 900); tone(600, 0.3, 'triangle', 0.08, -200) },
   whip: () => { noise(0.05, 0.35, 3500); tone(900, 0.08, 'square', 0.06, -600) },
   spray: () => noise(0.3, 0.15, 5000),
+  trait: () => { tone(740, 0.06, 'square', 0.08); setTimeout(() => tone(1110, 0.08, 'triangle', 0.08), 50) },
   block: () => { tone(1400, 0.05, 'square', 0.08); tone(900, 0.08, 'square', 0.06) },
   swing: () => noise(0.08, 0.12, 3000),
   dash: () => { noise(0.2, 0.15, 1500); tone(300, 0.2, 'sawtooth', 0.06, 200) },

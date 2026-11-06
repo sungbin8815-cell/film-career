@@ -3,6 +3,7 @@
 import { Fighter, METER_MAX, type FighterOpts } from './Fighter'
 import type { CharacterData, InputState, MatchEvent, MoveData, ProjectileSpec, Rect } from './types'
 import { FPS, STAGE_W } from './types'
+import { TraitWorld } from './Traits'
 
 export const ROUND_TIME = 60      // 초
 export const ROUNDS_TO_WIN = 2
@@ -34,10 +35,13 @@ export class Match {
   roundWinner: number | null = null
   events: MatchEvent[] = []
   frame = 0
+  world: TraitWorld
 
   /** opts: 스테이지 모드 직급 배율 (체력·공격력) */
   constructor(p1: CharacterData, p2: CharacterData, opts: [FighterOpts?, FighterOpts?] = []) {
     this.fighters = [new Fighter(p1, 0, START_X[0], opts[0]), new Fighter(p2, 1, START_X[1], opts[1])]
+    this.world = new TraitWorld(this)
+    for (const f of this.fighters) f.world = this.world
     this.events.push({ type: 'round', round: 1 })
   }
 
@@ -69,8 +73,11 @@ export class Match {
         if (m.projectile) this.spawnProjectile(f, m.projectile, m.name)
       }
       f.pendingEvents = []
+      if (f.pendingTrait) { this.world.activate(f, f.pendingTrait); f.pendingTrait = null }
     }
+    const prevX: [number, number] = [a.x, b.x]
     a.physics(); b.physics()
+    this.world.physics(prevX)
     for (const f of this.fighters) {
       if (f.pendingJump) { this.events.push({ type: 'jump', fighter: f.idx }); f.pendingJump = false }
       if (f.pendingLand) { this.events.push({ type: 'land', fighter: f.idx }); f.pendingLand = false }
@@ -82,6 +89,7 @@ export class Match {
       this.checkHit(a, b)
       this.checkHit(b, a)
       this.updateProjectiles()
+      this.world.tick()
       // 콤보 끊김: 맞던 쪽이 풀려나면 0
       if (!b.inHitstun) a.combo = 0
       if (!a.inHitstun) b.combo = 0
@@ -124,6 +132,7 @@ export class Match {
 
   private checkHit(att: Fighter, def: Fighter) {
     const hb = att.hitbox()
+    if (hb && hb.w > 0 && att.moveFrame === att.move!.startup) this.world.hitWalls(att, hb)
     if (!hb || !att.canHitNow() || def.invuln > 0 || def.state === 'defeat') return
     if (!this.canJuggle(def, !!att.move?.juggle)) return
     if (!overlap(hb, def.hurtbox())) {
@@ -134,12 +143,19 @@ export class Match {
   }
 
   /** 맞음 또는 막음 처리 (기술·투사체 공용) */
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit'>> & { id?: string }, fromX: number) {
+  /** 특성에서 쓰는 직접 타격 (분장 완성 등) */
+  hitDirect(att: Fighter, def: Fighter, d: Partial<MoveData> & Pick<MoveData, 'damage' | 'hitstun' | 'kbX' | 'name'>, opts: { unblockable?: boolean } = {}) {
+    if (this.phase !== 'fight' || def.invuln > 0) return
+    this.resolve(att, def, { chip: 0, blockstun: 0, meterGain: 8, ...d, id: 'trait' }, att.x, opts.unblockable)
+  }
+
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit'>> & { id?: string }, fromX: number, unblockable = false) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
     att.hitConfirmed = true
-    if (this.isBlocking(def, fromX)) {
+    if (!unblockable && this.isBlocking(def, fromX)) {
+      this.world.onDamaged(def, d.chip)
       def.hp = Math.max(1, def.hp - d.chip)
       def.setState('guard')
       def.stun = d.blockstun
@@ -155,6 +171,17 @@ export class Match {
     const scale = Math.max(0.4, Math.pow(0.88, att.combo)) * (counter ? 1.25 : 1) * (d.id ? att.dmgMul : 1)
     const dmg = Math.max(1, Math.round(d.damage * scale))
     def.hp = Math.max(0, def.hp - dmg)
+    this.world.onDamaged(def, dmg)
+    this.world.onHit(att, d.id)
+    // 슈퍼아머(조명 특성): 피해는 받지만 기술이 끊기지 않음
+    if (def.state === 'attack' && def.armorLeft > 0 && def.hp > 0 && !d.kbY) {
+      def.armorLeft--
+      att.combo++
+      this.hitstop = 7
+      this.events.push({ type: 'armor', fighter: def.idx, x: hx, y: hy })
+      this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: false, finisher: false, launch: false, counter: false, moveName: d.name })
+      return
+    }
     att.combo++
     att.meter = Math.min(METER_MAX, att.meter + d.meterGain)
     def.meter = Math.min(METER_MAX, def.meter + Math.round(dmg / 18))
@@ -180,7 +207,7 @@ export class Match {
     if (def.hp <= 0) this.ko(att.idx)
   }
 
-  private spawnProjectile(f: Fighter, p: ProjectileSpec, name: string) {
+  spawnProjectile(f: Fighter, p: ProjectileSpec, name: string) {
     const d = f.dmgMul
     this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x: f.x + f.facing * p.offsetX, y: p.startY, age: 0, dead: false, vx: p.vx * f.facing })
   }
@@ -194,6 +221,7 @@ export class Match {
       // 조명 낙하는 바닥에 쓰러진 채 잠깐 남고, 나머지는 바닥·화면 밖에서 사라짐
       if (p.age > p.life || (p.y <= 0 && p.age > 4 && p.kind !== 'lightstand') || p.x < -20 || p.x > STAGE_W + 20) p.dead = true
       if (p.dead || this.phase !== 'fight') continue
+      if (this.world.blocksProjectile(p.owner, p.x, p.y)) { p.dead = true; continue }
       const def = this.fighters[1 - p.owner]
       const att = this.fighters[p.owner]
       if (def.invuln > 0) continue
@@ -237,6 +265,7 @@ export class Match {
     this.round++
     this.timer = ROUND_TIME * FPS
     this.projectiles = []
+    this.world.resetRound()
     this.roundWinner = null
     this.fighters.forEach((f, i) => { f.resetForRound(START_X[i]); f.meter = Math.min(METER_MAX, f.meter) })
     this.events.push({ type: 'round', round: this.round })

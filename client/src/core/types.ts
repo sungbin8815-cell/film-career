@@ -1,6 +1,7 @@
 // 전투 로직 공용 타입. Phaser에 의존하지 않습니다(나중에 온라인 서버에서도 같은 로직을 씀).
 // 좌표: x = 화면 가로(px, 0~STAGE_W), y = 발바닥 기준 높이(지면 0, 위로 +)
 // 시간 단위: 프레임 (1초 = 60프레임 고정)
+import type { TraitId } from './Traits'
 
 export const FPS = 60
 export const STAGE_W = 480
@@ -17,11 +18,12 @@ export interface InputState {
   special: boolean
   guard: boolean
   super: boolean
+  trait: boolean           // 직업 고유 버튼
 }
 
 export const emptyInput = (): InputState => ({
   left: false, right: false, up: false, down: false,
-  light: false, heavy: false, special: false, guard: false, super: false,
+  light: false, heavy: false, special: false, guard: false, super: false, trait: false,
 })
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -66,6 +68,7 @@ export interface MoveData {
   anim?: string            // 쓸 애니메이션 (없으면 id와 같은 이름)
   rank?: number            // 스테이지 모드에서 쓸 수 있게 되는 직급 (0 막내 ~ 4 감독, 없으면 0)
   desc?: string            // 기술표 설명
+  armor?: number           // 슈퍼아머: 이만큼 맞아도 경직 없이 계속 (조명 특성)
 }
 
 export interface ProjectileSpec {
@@ -106,6 +109,8 @@ export interface CharacterData {
   gravity: number
   hurt: { w: number; h: number; crouchH: number }
   moves: Record<MoveId, MoveData>
+  /** 직업 고유 특성 (core/Traits.ts) */
+  trait: TraitId
   /** 커맨드 콤보 목록 (긴 것부터 검사) */
   combos: ComboDef[]
 }
@@ -129,3 +134,5 @@ export type MatchEvent =
   | { type: 'land'; fighter: number }
   | { type: 'knockdown'; fighter: number }
   | { type: 'jump'; fighter: number }
+  | { type: 'trait'; fighter: number; kind: string; x: number; value?: number }
+  | { type: 'armor'; fighter: number; x: number; y: number }

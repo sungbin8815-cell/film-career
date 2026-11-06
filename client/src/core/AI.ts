@@ -3,6 +3,7 @@
 import type { Fighter } from './Fighter'
 import type { InputState, Btn } from './types'
 import { emptyInput } from './types'
+import { aiWantsTrait } from './Traits'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
@@ -72,7 +73,9 @@ export class SimpleAI {
       // 붙어 있을 때: 먼저 치거나(공격성), 미리 막거나(가드 확률), 빠지거나
       else this.plan = r() < this.p.aggro ? 'attack' : r() < this.p.guard ? 'guard' : 'retreat'
       this.planT = 18 + Math.floor(r() * 24)
-      if (this.plan === 'attack') {
+      // 직업 고유 특성 (잘하는 AI일수록 자주 씀)
+      if (r() < 0.25 + this.p.special && aiWantsTrait(me, opp, r)) { this.tap('trait'); this.plan = 'wait' }
+      else if (this.plan === 'attack') {
         if (me.meter >= 100 && r() < this.p.special) this.tap('super')
         else if (me.meter >= 25 && r() < this.p.special / 2) this.tap('special')
         else if (r() < this.p.combo * 0.45) {

@@ -12,12 +12,12 @@ const base: Pose = {
 }
 const P = (o: Partial<Pose>): Pose => ({ ...base, elF: [37, 37], hdF: [39, 41], ...o })
 /** 상체 전체를 옮김 (숨쉬기·숙이기) */
-const up = (p: Pose, dx: number, dy: number): Pose => {
+export const up = (p: Pose, dx: number, dy: number): Pose => {
   const m = (q: P2): P2 => [q[0] + dx, q[1] + dy]
   return { ...p, head: m(p.head), sh: m(p.sh), hip: [p.hip[0] + dx * 0.5, p.hip[1] + dy], elF: m(p.elF), hdF: m(p.hdF), elB: m(p.elB), hdB: m(p.hdB) }
 }
 /** 몸 전체를 옮김 (점프·넉백) */
-const all = (p: Pose, dx: number, dy: number): Pose => {
+export const all = (p: Pose, dx: number, dy: number): Pose => {
   const m = (q: P2): P2 => [q[0] + dx, q[1] + dy]
   return { ...p, head: m(p.head), sh: m(p.sh), hip: m(p.hip), knF: m(p.knF), ftF: m(p.ftF), knB: m(p.knB), ftB: m(p.ftB), elF: m(p.elF), hdF: m(p.hdF), elB: m(p.elB), hdB: m(p.hdB) }
 }
@@ -156,6 +156,15 @@ export const ANIMS: Record<string, AnimDef> = {
       P({ head: [33, 22], sh: [32, 35], hip: [31, 46], knF: [37, 51], ftF: [39, 58], knB: [25, 52], ftB: [23, 58], elF: [35, 40], hdF: [33, 43], elB: [29, 40], hdB: [31, 43], prop: 'none', face: 'focus' }),
       all(P({ head: [34, 15], sh: [33, 29], elF: [40, 24], hdF: [46, 19], elB: [26, 24], hdB: [20, 19], prop: 'fxFront', face: 'shout', knF: [37, 49], ftF: [40, 57], knB: [26, 49], ftB: [23, 57] }), 0, -1),
       P({ elF: [38, 31], hdF: [42, 30], elB: [27, 31], hdB: [24, 30], prop: 'none', face: 'happy' }),
+    ], fps: 10, loop: false,
+  },
+
+  // 촬영감독 고유: 렌즈 교체 (뒷손으로 렌즈를 돌려 끼움)
+  trait: {
+    frames: [
+      P({ head: [33, 18], elF: [36, 36], hdF: [38, 34], elB: [33, 32], hdB: [40, 30], prop: 'cameraFront', face: 'focus' }),
+      P({ head: [34, 18], elF: [36, 36], hdF: [38, 34], elB: [37, 28], hdB: [44, 26], prop: 'cameraFront', face: 'focus' }),
+      P({ head: [34, 17], elF: [38, 27], hdF: [40, 22], elB: [30, 30], hdB: [33, 33], prop: 'cameraUp', face: 'happy' }),
     ], fps: 10, loop: false,
   },
 

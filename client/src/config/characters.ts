@@ -5,6 +5,11 @@
 // 기술표 전체는 MOVES.md (npm run moves 로 다시 만들 수 있음)
 import type { CharacterData, ComboDef, MoveData, MoveId } from '../core/types'
 
+/** 고유 버튼 기술 (판정 없음, startup 프레임에 특성 효과 발동) */
+function tmove(id: 'trait' | 'trait2', name: string, startup: number, recovery: number, voice?: string): MoveData {
+  return { id, name, voice, rank: 0, startup, active: 1, recovery, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, meterGain: 0, sfx: 'trait' }
+}
+
 const TITLES = (head: string): CharacterData['titles'] => ['막내', '서드', '세컨드', '퍼스트', head]
 /** 모든 캐릭터가 같은 입력으로 쓰는 커맨드 콤보 */
 const STD_COMBOS: ComboDef[] = [
@@ -24,8 +29,9 @@ export const DP: CharacterData = {
   desc: '장비 자부심 MAX. 구도에 민감한 밸런스형.',
   dept: '촬영부',
   titles: TITLES('촬영감독'),
+  trait: 'lens',
   stats: { power: 3, speed: 3, reach: 3 },
-  hp: 1000,
+  hp: 1030,
   walkSpeed: 1.7,
   runSpeed: 3.4,
   jumpV: 6.4,
@@ -122,6 +128,7 @@ export const DP: CharacterData = {
       cancelInto: ['special1', 'super'],
       sfx: 'heavy',
     },
+    trait: tmove('trait', '렌즈 교체', 14, 8),
   },
   combos: STD_COMBOS,
 }
@@ -131,6 +138,7 @@ type Over = Partial<MoveData> & { name: string }
 function derive(over: Record<MoveId, Over>): Record<MoveId, MoveData> {
   const out: Record<MoveId, MoveData> = {}
   for (const [id, base] of Object.entries(DP.moves)) {
+    if (id.startsWith('trait')) continue
     const o = over[id]
     out[id] = { ...base, voice: undefined, ...o, id, anim: o?.anim ?? base.anim ?? id }
   }
@@ -138,56 +146,56 @@ function derive(over: Record<MoveId, Over>): Record<MoveId, MoveData> {
 }
 
 export const DIRECTOR: CharacterData = {
-  ...DP, id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'),
+  ...DP, id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'), trait: 'mark',
   desc: '모든 걸 내 뜻대로. 빠른 근접 압박형.', stats: { power: 3, speed: 4, reach: 2 },
   hp: 920, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.6,
-  moves: derive({
+  moves: { ...derive({
     light: { name: '슬레이트 딱!', startup: 4, recovery: 9, damage: 32, sfx: 'slate' },
     heavy: { name: '메가폰 후려치기', startup: 9, damage: 80 },
-    special1: { name: '컷!!', voice: '컷!! 컷컷컷!!', anim: 'poke', startup: 10, active: 1, recovery: 20, dash: undefined, afterimage: false, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, kbY: undefined, hitbox: { x: 0, y: 0, w: 0, h: 0 },
+    special1: { name: '컷!!', voice: '컷!! 컷컷컷!!', startup: 10, active: 1, recovery: 20, dash: undefined, afterimage: false, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, kbY: undefined, hitbox: { x: 0, y: 0, w: 0, h: 0 },
       projectile: { kind: 'cut', offsetX: 24, startY: 18, vx: 5.2, vy: 0, w: 18, h: 30, life: 40, damage: 60, chip: 10, hitstun: 24, blockstun: 14, kbX: 2.6 }, sfx: 'shout' },
-    special2: { name: '대본 던지기', voice: '대본 좀 읽고 와!', anim: 'throw', startup: 12,
+    special2: { name: '대본 던지기', voice: '대본 좀 읽고 와!', startup: 12,
       projectile: { kind: 'script', offsetX: 12, startY: 36, vx: 3, vy: 2.4, gy: 0.22, w: 16, h: 14, life: 90, damage: 84, chip: 12, hitstun: 28, blockstun: 16, kbX: 2, kbY: 2.6 }, sfx: 'swing' },
-    super: { name: '레디~ 액션!!', voice: '레디~~ 액션!!', anim: 'rush', damage: 46, dash: 4, multiHit: { interval: 7, max: 6 } },
+    super: { name: '레디~ 액션!!', voice: '레디~~ 액션!!', damage: 46, dash: 4, multiHit: { interval: 7, max: 6 } },
     upper: { name: 'NG 어퍼', voice: 'NG!!', combo: true },
-    zoompunch: { name: 'OK 컷 내려찍기', voice: '오케이~ 컷!', combo: true, anim: 'heavy', dash: 2.6 },
+    zoompunch: { name: 'OK 컷 내려찍기', voice: '오케이~ 컷!', combo: true, dash: 2.6 },
     spin: { name: '메가폰 회전', voice: '다들 집중!', combo: true },
     flash: { name: '슬레이트 플래시', voice: '씬 원, 컷 원!', combo: true },
     rush: { name: '디렉션 폭풍', voice: '거기! 아니 거기! 아니!', combo: true },
     sweep: { name: '발 맞춰!', voice: '동선 확인!', combo: true },
-  }),
+  }), trait: tmove('trait', '마킹 테이프', 12, 10, '여기 마크!'), trait2: tmove('trait2', '위치로!', 10, 10, '위치로!') },
 }
 export const SOUND: CharacterData = {
-  ...DP, id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'),
+  ...DP, id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'), trait: 'rec',
   desc: '녹음 방해는 용서 못 해. 긴 붐으로 견제하는 원거리형.', stats: { power: 2, speed: 2, reach: 5 },
   hp: 1000, walkSpeed: 1.5, runSpeed: 3.1,
-  moves: derive({
-    light: { name: '붐 찌르기', anim: 'poke', startup: 6, active: 4, recovery: 12, damage: 38, hitbox: { x: 16, y: 26, w: 34, h: 14 } },
+  moves: { ...derive({
+    light: { name: '붐 찌르기', startup: 6, active: 4, recovery: 12, damage: 38, hitbox: { x: 16, y: 26, w: 34, h: 14 } },
     heavy: { name: '붐 내려찍기', startup: 13, recovery: 20, damage: 88, hitbox: { x: 10, y: 10, w: 50, h: 34 } },
-    special1: { name: '하울링', voice: '삐이이익~!!', anim: 'poke', startup: 12, active: 1, recovery: 22, dash: undefined, afterimage: false, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, kbY: undefined, hitbox: { x: 0, y: 0, w: 0, h: 0 },
+    special1: { name: '하울링', voice: '삐이이익~!!', startup: 12, active: 1, recovery: 22, dash: undefined, afterimage: false, damage: 0, chip: 0, hitstun: 0, blockstun: 0, kbX: 0, kbY: undefined, hitbox: { x: 0, y: 0, w: 0, h: 0 },
       projectile: { kind: 'wave', offsetX: 30, startY: 16, vx: 4.4, vy: 0, w: 20, h: 34, life: 70, damage: 66, chip: 10, hitstun: 26, blockstun: 14, kbX: 2.4 }, sfx: 'wave' },
-    special2: { name: '조용히!!', voice: '조용히 해주세요!!', anim: 'burst', startup: 12, active: 6, recovery: 22, cost: 25, projectile: undefined,
+    special2: { name: '조용히!!', voice: '조용히 해주세요!!', startup: 12, active: 6, recovery: 22, cost: 25, projectile: undefined,
       damage: 60, chip: 10, hitstun: 44, blockstun: 16, kbX: 3, hitbox: { x: -12, y: 4, w: 54, h: 50 }, sfx: 'wave' },
-    super: { name: '동시녹음 풀레벨', voice: '레벨 최대!! 전원 정숙!!', anim: 'burst', dash: undefined, damage: 40, hitbox: { x: -20, y: 0, w: 150, h: 60 }, multiHit: { interval: 9, max: 5 }, sfx: 'wave' },
+    super: { name: '동시녹음 풀레벨', voice: '레벨 최대!! 전원 정숙!!', dash: undefined, damage: 40, hitbox: { x: -20, y: 0, w: 150, h: 60 }, multiHit: { interval: 9, max: 5 }, sfx: 'wave' },
     upper: { name: '붐 어퍼', voice: '마이크 올립니다!', combo: true, hitbox: { x: 4, y: 24, w: 34, h: 44 } },
-    zoompunch: { name: '털뭉치 강타', voice: '바람 소리 컷!', combo: true, anim: 'poke', dash: 1.8, hitbox: { x: 14, y: 20, w: 40, h: 22 } },
+    zoompunch: { name: '털뭉치 강타', voice: '바람 소리 컷!', combo: true, dash: 1.8, hitbox: { x: 14, y: 20, w: 40, h: 22 } },
     spin: { name: '붐 회전', voice: '360도 수음!', combo: true, hitbox: { x: -20, y: 10, w: 70, h: 32 } },
     flash: { name: '피드백 노이즈', voice: '지지직—!', combo: true },
-    rush: { name: '음파 난타', voice: '들려? 들리냐고!', combo: true, anim: 'poke' },
+    rush: { name: '음파 난타', voice: '들려? 들리냐고!', combo: true },
     sweep: { name: '케이블 걸기', voice: '선 밟지 마세요!', combo: true, hitbox: { x: 4, y: 0, w: 46, h: 12 } },
-  }),
+  }), trait: tmove('trait', 'REC', 10, 8, '녹음 들어갑니다'), trait2: tmove('trait2', '플레이백', 12, 18, '다시 들어보세요!') },
 }
 export const GAFFER: CharacterData = {
-  ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'),
+  ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
   desc: '빛과 힘의 사나이. 느리지만 한 방이 큰 파워형.', stats: { power: 5, speed: 2, reach: 3 },
-  hp: 1060, walkSpeed: 1.45, runSpeed: 3.0, jumpV: 6.1,
-  moves: derive({
+  hp: 1000, walkSpeed: 1.45, runSpeed: 3.0, jumpV: 6.1,
+  moves: { ...derive({
     light: { name: 'LED 패널 치기', startup: 5, recovery: 10, damage: 46 },
-    heavy: { name: 'C스탠드 휘두르기', startup: 12, recovery: 20, damage: 104, kbX: 4, hitbox: { x: 6, y: 14, w: 44, h: 30 } },
-    special1: { name: '케이블 채찍', voice: '전원 들어갑니다!', anim: 'poke', startup: 10, active: 10, recovery: 20, dash: undefined, afterimage: false, damage: 48, kbX: 2.6, kbY: undefined, hitbox: { x: 12, y: 18, w: 50, h: 18 }, multiHit: { interval: 5, max: 2 }, sfx: 'whip' },
-    special2: { name: '전구 투척', voice: '전구 나갑니다~!', anim: 'throw', startup: 13,
+    heavy: { name: 'C스탠드 휘두르기', startup: 12, recovery: 20, damage: 98, kbX: 4, hitbox: { x: 6, y: 14, w: 44, h: 30 } },
+    special1: { name: '케이블 채찍', voice: '전원 들어갑니다!', startup: 10, active: 10, recovery: 20, dash: undefined, afterimage: false, damage: 48, kbX: 2.6, kbY: undefined, hitbox: { x: 12, y: 18, w: 50, h: 18 }, multiHit: { interval: 5, max: 2 }, sfx: 'whip' },
+    special2: { name: '전구 투척', voice: '전구 나갑니다~!', startup: 13,
       projectile: { kind: 'bulb', offsetX: 12, startY: 38, vx: 3, vy: 2.6, gy: 0.24, w: 14, h: 14, life: 90, damage: 100, chip: 16, hitstun: 30, blockstun: 18, kbX: 2, kbY: 2.8 }, sfx: 'swing' },
-    super: { name: '풀 파워!!', voice: '18K 풀 파워!!!', anim: 'burst', dash: undefined, damage: 0, chip: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, multiHit: undefined, active: 1, recovery: 30,
+    super: { name: '풀 파워!!', voice: '18K 풀 파워!!!', dash: undefined, damage: 0, chip: 0, hitbox: { x: 0, y: 0, w: 0, h: 0 }, multiHit: undefined, active: 1, recovery: 30,
       projectile: { kind: 'beam', offsetX: 46, startY: 1, vx: 2.6, vy: 0, w: 24, h: 70, life: 80, damage: 230, chip: 30, hitstun: 40, blockstun: 24, kbX: 3, kbY: 6.5 }, sfx: 'super' },
     upper: { name: '스탠드 어퍼', voice: '라이트 업!', combo: true, damage: 80 },
     zoompunch: { name: '백열등 강타', voice: '뜨겁지?', combo: true, damage: 108 },
@@ -195,45 +203,45 @@ export const GAFFER: CharacterData = {
     flash: { name: 'HMI 섬광', voice: '눈 감아!!', combo: true },
     rush: { name: '전압 러시', voice: '과부하다아!', combo: true, damage: 32 },
     sweep: { name: '케이블 걸기', voice: '발밑 조심!', combo: true, damage: 70 },
-  }),
+  }), trait: tmove('trait', '조명 설치', 18, 10, '조명 세팅!') },
 }
 export const ART: CharacterData = {
-  ...DP, id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'),
+  ...DP, id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'), trait: 'wall',
   desc: '세트는 내가 지킨다. 망치와 롤러의 공격형.', stats: { power: 4, speed: 3, reach: 3 },
-  hp: 1030,
-  moves: derive({
+  hp: 1060,
+  moves: { ...derive({
     light: { name: '망치 콩!', startup: 4, damage: 42, sfx: 'light' },
-    heavy: { name: '롤러 휘두르기', startup: 11, damage: 90 },
+    heavy: { name: '롤러 휘두르기', startup: 11, damage: 96 },
     special1: { name: '세트 조립 돌진', voice: '세트 들어갑니다!' },
-    special2: { name: '페인트 투척', voice: '덧칠 들어간다!', anim: 'throw', startup: 12,
+    special2: { name: '페인트 투척', voice: '덧칠 들어간다!', startup: 12,
       projectile: { kind: 'paint', offsetX: 12, startY: 36, vx: 3.2, vy: 2.4, gy: 0.22, w: 16, h: 14, life: 90, damage: 90, chip: 14, hitstun: 30, blockstun: 16, kbX: 2, kbY: 2.4 }, sfx: 'swing' },
-    super: { name: '세트 철거!!', voice: '전부 철거다아!!', anim: 'rush', dash: 3.2, damage: 48, multiHit: { interval: 7, max: 6 } },
+    super: { name: '세트 철거!!', voice: '전부 철거다아!!', dash: 3.2, damage: 48, multiHit: { interval: 7, max: 6 } },
     upper: { name: '롤러 어퍼', voice: '천장까지 칠해!', combo: true },
-    zoompunch: { name: '대못 박기', voice: '쾅!!', combo: true, anim: 'heavy', damage: 104 },
+    zoompunch: { name: '대못 박기', voice: '쾅!!', combo: true, damage: 104 },
     spin: { name: '롤러 회전', voice: '한 번 더 칠한다!', combo: true },
     flash: { name: '페인트 폭탄', voice: '색 좀 입혀줄게!', combo: true },
     rush: { name: '연속 망치질', voice: '뚝딱뚝딱뚝딱!', combo: true },
     sweep: { name: '바닥 칠하기', voice: '바닥 마르기 전이야!', combo: true },
-  }),
+  }), trait: tmove('trait', '세트벽 세우기', 16, 12, '벽 세웁니다!') },
 }
 export const MAKEUP: CharacterData = {
-  ...DP, id: 'makeup', name: '분장실장', nameEn: 'MAKEUP', color: '#ec4899', dept: '분장팀', titles: TITLES('분장실장'),
+  ...DP, id: 'makeup', name: '분장실장', nameEn: 'MAKEUP', color: '#ec4899', dept: '분장팀', titles: TITLES('분장실장'), trait: 'makeup',
   desc: '톡톡톡, 이미 끝났어. 가장 빠른 연타형.', stats: { power: 2, speed: 5, reach: 2 },
   hp: 940, walkSpeed: 2.05, runSpeed: 4.1, jumpV: 6.8, airSpeed: 2.3,
-  moves: derive({
-    light: { name: '퍼프 톡', startup: 3, active: 2, recovery: 7, damage: 33, hitstun: 15 },
+  moves: { ...derive({
+    light: { name: '퍼프 톡', startup: 3, active: 2, recovery: 7, damage: 31, hitstun: 15 },
     heavy: { name: '브러시 휘두르기', startup: 8, recovery: 15, damage: 78 },
-    special1: { name: '헤어스프레이', voice: '고정 들어갑니다~', anim: 'flash', startup: 7, active: 20, recovery: 16, dash: undefined, afterimage: false, damage: 18, chip: 3, hitstun: 14, kbX: 0.8, kbY: undefined, hitbox: { x: 8, y: 16, w: 38, h: 30 }, multiHit: { interval: 5, max: 4 }, sfx: 'spray' },
-    special2: { name: '파우더 연막', voice: '파우더~ 팡!', anim: 'throw', startup: 10,
+    special1: { name: '헤어스프레이', voice: '고정 들어갑니다~', startup: 7, active: 20, recovery: 16, dash: undefined, afterimage: false, damage: 18, chip: 3, hitstun: 14, kbX: 0.8, kbY: undefined, hitbox: { x: 8, y: 16, w: 38, h: 30 }, multiHit: { interval: 5, max: 4 }, sfx: 'spray' },
+    special2: { name: '파우더 연막', voice: '파우더~ 팡!', startup: 10,
       projectile: { kind: 'spray', offsetX: 20, startY: 18, vx: 2.4, vy: 0, w: 24, h: 26, life: 80, damage: 52, chip: 6, hitstun: 50, blockstun: 12, kbX: 0.8 }, sfx: 'spray' },
-    super: { name: '풀메이크업!!', voice: '완벽하게 만들어 줄게!!', anim: 'rush', dash: 4.2, damage: 28, multiHit: { interval: 5, max: 8 } },
+    super: { name: '풀메이크업!!', voice: '완벽하게 만들어 줄게!!', dash: 4.2, damage: 28, multiHit: { interval: 5, max: 8 } },
     upper: { name: '브러시 어퍼', voice: '턱선 살리고~', combo: true, damage: 64 },
     zoompunch: { name: '컬링 스트라이크', voice: '볼륨 업!', combo: true, damage: 88 },
     spin: { name: '브러시 회전', voice: '쉐딩 쉐딩~', combo: true, damage: 40 },
     flash: { name: '반짝 펄', voice: '하이라이터 반짝!', combo: true },
     rush: { name: '메이크업 러시', voice: '톡톡톡톡톡!', combo: true, damage: 24, multiHit: { interval: 5, max: 6 } },
     sweep: { name: '쓸어담기', voice: '정리 끝~', combo: true, damage: 52 },
-  }),
+  }), trait: tmove('trait', '분장 완성!', 10, 16, '완성!') },
 }
 
 export const CHARACTERS: CharacterData[] = [DP, DIRECTOR, SOUND, GAFFER, ART, MAKEUP]

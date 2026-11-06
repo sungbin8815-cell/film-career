@@ -7,9 +7,10 @@ import { SimpleAI } from '../core/AI'
 import { emptyInput, FPS, type MatchEvent } from '../core/types'
 import { getCharacter, BTN_LABEL, atRank, RANK_MUL } from '../config/characters'
 import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
+import { TRAIT_INFO, LENSES } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
-import { ANIMS } from '../gfx/poses'
+import { animsFor } from '../gfx/charPoses'
 import { FW, FH, FOOT_Y } from '../gfx/Painter'
 import type { Controls } from '../ui/Controls'
 import { button, text, COLOR, FONT } from '../ui/widgets'
@@ -31,7 +32,7 @@ export class FightScene extends Phaser.Scene {
   private projSprites = new Map<object, Phaser.GameObjects.Image>()
   private acc = 0
   private controls!: Controls
-  private hud!: { hp: Phaser.GameObjects.Rectangle[]; hpLag: Phaser.GameObjects.Rectangle[]; meter: Phaser.GameObjects.Rectangle[]; meterTxt: Phaser.GameObjects.Text[]; timer: Phaser.GameObjects.Text; pips: Phaser.GameObjects.Rectangle[][]; combo: Phaser.GameObjects.Text[] }
+  private hud!: { trait: Phaser.GameObjects.Text[]; hp: Phaser.GameObjects.Rectangle[]; hpLag: Phaser.GameObjects.Rectangle[]; meter: Phaser.GameObjects.Rectangle[]; meterTxt: Phaser.GameObjects.Text[]; timer: Phaser.GameObjects.Text; pips: Phaser.GameObjects.Rectangle[][]; combo: Phaser.GameObjects.Text[] }
   private lagHp = [1, 1]
   private flash = [0, 0]
   private paused = false
@@ -43,6 +44,8 @@ export class FightScene extends Phaser.Scene {
   private names: string[] = []
   private bg = 'stage_chroma'
   private camKick = { x: 0, y: 0 }
+  private worldG!: Phaser.GameObjects.Graphics
+  private tags: Phaser.GameObjects.Text[] = []
   private uiCam!: Phaser.Cameras.Scene2D.Camera
   private zoom = 1.7
   private zoomKick = 0
@@ -93,6 +96,9 @@ export class FightScene extends Phaser.Scene {
     this.controls.show(true)
     this.events.once('shutdown', () => this.controls.show(false))
 
+    // 특성 오브젝트(마크·조명·세트벽)와 머리 위 표시
+    this.worldG = this.add.graphics().setDepth(3)
+    this.tags = [0, 1].map(() => this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '11px', color: '#ffffff', stroke: '#0a0812', strokeThickness: 3, resolution: 6 }).setOrigin(0.5).setScale(0.6).setDepth(33))
     this.match.fighters.forEach((f, i) => {
       this.shadows[i] = this.add.image(f.x, GROUND + 1, 'shadow').setDepth(1)
       this.sprites[i] = this.add.sprite(f.x, GROUND, this.texKeys[i]).setOrigin(0.5, FOOT_Y / FH).setDepth(5 + i)
@@ -119,6 +125,7 @@ export class FightScene extends Phaser.Scene {
   // ───── HUD ─────
   private buildHud(W: number) {
     const bw = 190
+    const trait: Phaser.GameObjects.Text[] = []
     const hp: Phaser.GameObjects.Rectangle[] = [], hpLag: Phaser.GameObjects.Rectangle[] = [], meter: Phaser.GameObjects.Rectangle[] = [], meterTxt: Phaser.GameObjects.Text[] = [], pips: Phaser.GameObjects.Rectangle[][] = [], combo: Phaser.GameObjects.Text[] = []
     this.match.fighters.forEach((f, i) => {
       const left = i === 0
@@ -131,6 +138,8 @@ export class FightScene extends Phaser.Scene {
       this.add.rectangle(left ? x0 + bw : x0, 19, bw, 2, 0xffffff, 0.35).setOrigin(left ? 1 : 0, 0).setDepth(23)
       // 라운드 승리 표시
       pips[i] = [0, 1].map((k) => this.add.rectangle(left ? x0 + bw - 6 - k * 10 : x0 + 6 + k * 10, 34, 7, 4, 0x0a0812).setStrokeStyle(1, 0xffd23f).setDepth(20))
+      // 직업 특성 상태
+      trait[i] = text(this, left ? x0 : x0 + bw, 35, '', 11, '#5eead4', left ? 0 : 1).setDepth(20)
       // 하단 필살 게이지
       // 하단 필살 게이지: 양쪽 터치 버튼 사이(화면 가운데)에 둬서 가리지 않게
       const mx = left ? W / 2 - 8 - 100 : W / 2 + 8
@@ -141,7 +150,7 @@ export class FightScene extends Phaser.Scene {
     })
     this.add.rectangle(W / 2, 22, 30, 22, COLOR.line).setDepth(20)
     const timer = this.add.text(W / 2, 22, '60', { fontFamily: FONT, fontSize: '16px', color: '#ffd23f', fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(21)
-    this.hud = { hp, hpLag, meter, meterTxt, timer, pips, combo }
+    this.hud = { trait, hp, hpLag, meter, meterTxt, timer, pips, combo }
   }
 
   private updateHud() {
@@ -155,9 +164,13 @@ export class FightScene extends Phaser.Scene {
       this.hud.meter[i].fillColor = f.meter >= 100 ? 0xffd23f : 0x5ec8ff
       this.hud.meterTxt[i].setText(f.meter >= 100 ? '필살 OK!' : `SP ${Math.floor(f.meter)}`)
       this.hud.pips[i].forEach((p, k) => p.setFillStyle(k < m.wins[i] ? 0xffd23f : 0x0a0812))
+      const tl = m.world.label(f)
+      if (this.hud.trait[i].text !== tl) this.hud.trait[i].setText(tl)
     })
     this.hud.timer.setText(String(Math.max(0, m.timeLeft)))
     this.controls.setMeter(m.fighters[0].meter)
+    const me = m.fighters[0]
+    this.controls.setTrait(TRAIT_INFO[me.char.trait].button, m.phase === 'fight' && m.world.ready(me))
   }
 
   // ───── 그리기 ─────
@@ -174,6 +187,7 @@ export class FightScene extends Phaser.Scene {
     let anim = f.state as string
     if (f.state === 'attack' && f.move) {
       const m = f.move
+      const ANIMS = animsFor(f.char.id)
       const want = m.anim ?? m.id
       const animId = ANIMS[want] ? want : 'light'   // 애니메이션이 없는 기술은 약공격 모션으로
       const def = ANIMS[animId]
@@ -272,7 +286,7 @@ export class FightScene extends Phaser.Scene {
     const bot = this.ui(this.add.rectangle(0, 270, 480, 30, 0x000000).setOrigin(0).setDepth(41))
     const dark = this.ui(this.add.rectangle(0, 0, 480, 270, 0x0a0812, 0.65).setOrigin(0).setDepth(36))
     const band = this.ui(this.add.rectangle(240, 140, 480, 64, fighter === 0 ? 0x2f6fe4 : 0xe0353f).setDepth(37))
-    const who = this.ui(this.add.sprite(fighter === 0 ? -60 : 540, 172, key, `${ANIMS[f.move?.anim ?? 'super'] ? f.move?.anim ?? 'super' : 'super'}_1`).setOrigin(0.5, 1).setScale(2.2).setFlipX(fighter !== 0).setDepth(38))
+    const who = this.ui(this.add.sprite(fighter === 0 ? -60 : 540, 172, key, `super_${Math.min(1, animsFor(f.char.id).super.frames.length - 1)}`).setOrigin(0.5, 1).setScale(2.2).setFlipX(fighter !== 0).setDepth(38))
     const t = this.ui(this.add.text(fighter === 0 ? 300 : 180, 140, `🎥 ${f.move?.name ?? '필살기'}!!`, { fontFamily: FONT, fontSize: '22px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 4, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(39).setScale(1.8))
     this.tweens.add({ targets: top, y: 0, duration: 120 }); this.tweens.add({ targets: bot, y: 240, duration: 120 })
     this.tweens.add({ targets: who, x: fighter === 0 ? 110 : 370, duration: 200, ease: 'Cubic.out' })
@@ -299,6 +313,55 @@ export class FightScene extends Phaser.Scene {
       if (p.gy) img.setAngle(p.age * 14 * Math.sign(p.vx))                 // 던진 물건은 빙글빙글
       if (p.kind === 'wave' || p.kind === 'cut') img.setScale(1 + Math.sin(p.age * 0.5) * 0.12)
       if (p.kind === 'beam') img.setAlpha(0.75 + Math.sin(p.age * 0.9) * 0.25)
+    }
+  }
+
+  /** 특성 오브젝트 그리기: 연출 마크, 조명, 세트벽, 분장 겹, REC 표시 */
+  private drawTraits() {
+    const g = this.worldG
+    const m = this.match
+    g.clear()
+    m.fighters.forEach((f, i) => {
+      const t = f.trait
+      const col = i === 0 ? 0x5ec8ff : 0xff5470
+      if (t.mark != null) {   // 바닥 마킹 테이프 (X자)
+        const x = t.mark, y = GROUND + 3
+        g.lineStyle(2, 0xfacc15, 1).lineBetween(x - 6, y - 2, x + 6, y + 2).lineBetween(x - 6, y + 2, x + 6, y - 2)
+        g.lineStyle(1, col, 1).strokeRect(x - 9, y - 4, 18, 8)
+      }
+      if (t.light) {          // 조명 스탠드 + 빛 범위
+        const x = t.light.x, a = 0.1 + 0.05 * Math.sin(this.tick * 0.2) + (t.light.t < 90 && this.tick % 10 < 5 ? -0.08 : 0)
+        g.fillStyle(0xfef9c3, Math.max(0.03, a)).fillTriangle(x, GROUND - 70, x - 54, GROUND, x + 54, GROUND)
+        g.fillStyle(0xfef9c3, Math.max(0.02, a * 0.7)).fillRect(x - 52, GROUND - 2, 104, 4)
+        g.fillStyle(0x6b7280, 1).fillRect(x - 1, GROUND - 68, 2, 68).fillRect(x - 8, GROUND - 2, 16, 2)
+        g.fillStyle(0x1f2937, 1).fillRect(x - 7, GROUND - 78, 14, 10)
+        g.fillStyle(0xfef08a, 1).fillRect(x - 5, GROUND - 70, 10, 3)
+      }
+      if (f.char.trait === 'makeup' && t.stacks > 0) {   // 상대 머리 위 분장 겹
+        const o = m.fighters[1 - i]
+        for (let k = 0; k < t.stacks; k++) {
+          const bx = o.x - (t.stacks - 1) * 4 + k * 8, by = GROUND - o.y - 66 + Math.sin(this.tick * 0.2 + k) * 1.5
+          g.fillStyle(0xff7eb6, 1).fillCircle(bx, by, 2.5); g.fillStyle(0xffffff, 1).fillRect(bx - 1, by - 1, 1, 1)
+        }
+      }
+      // 머리 위 짧은 표시 (REC·렌즈)
+      const tag = this.tags[i]
+      let s = ''
+      if (f.char.trait === 'rec' && t.rec > 0) s = this.tick % 30 < 18 ? `● REC ${t.recorded}` : `  REC ${t.recorded}`
+      else if (f.char.trait === 'rec' && t.tape > 0) s = `▶ ${t.tape}`
+      else if (f.char.trait === 'lens') s = LENSES[t.lens].short
+      tag.setText(s).setPosition(f.x, GROUND - f.y - 70).setColor(f.char.trait === 'rec' ? '#ff5470' : '#5eead4')
+    })
+    for (const w of m.world.walls) {   // 합판 세트벽 (금 간 정도 = 남은 내구도)
+      const x = w.x, top = GROUND - 46
+      g.fillStyle(0x0a0812, 1).fillRect(x - 7, top - 1, 14, 47)
+      g.fillStyle(0xc8955c, 1).fillRect(x - 6, top, 12, 46)
+      g.fillStyle(0xa87442, 1).fillRect(x - 6, top + 15, 12, 1).fillRect(x - 6, top + 31, 12, 1).fillRect(x - 1, top, 1, 46)
+      g.fillStyle(0x6b4423, 1).fillRect(x - 8, GROUND - 4, 16, 4)
+      g.lineStyle(1, 0x3b2312, 1)
+      if (w.hp <= 2) g.lineBetween(x - 4, top + 6, x + 2, top + 18).lineBetween(x + 2, top + 18, x - 1, top + 24)
+      if (w.hp <= 1) g.lineBetween(x + 4, top + 26, x - 3, top + 38).lineBetween(x - 3, top + 38, x + 2, top + 44)
+      if (w.owner === 0) g.fillStyle(0x5ec8ff, 1).fillRect(x - 6, top, 12, 2); else g.fillStyle(0xff5470, 1).fillRect(x - 6, top, 12, 2)
     }
   }
 
@@ -392,6 +455,15 @@ export class FightScene extends Phaser.Scene {
           sfx('land')
           break
         }
+        case 'armor': {
+          const f = this.match.fighters[e.fighter]
+          this.popText(e.x, e.y + 22, '아머!', '#fbbf24')
+          this.flash[e.fighter] = 0
+          this.ghost(this.sprites[e.fighter], e.fighter === 0 ? 1 : 0)
+          sfx('block'); void f
+          break
+        }
+        case 'trait': this.traitFx(e); break
         case 'knockdown': {
           const f = this.match.fighters[e.fighter]
           for (const dir of [-1, 1]) {
@@ -402,6 +474,41 @@ export class FightScene extends Phaser.Scene {
           sfx('hitHeavy')
           break
         }
+      }
+    }
+  }
+
+  /** 특성 발동 연출 */
+  private traitFx(e: Extract<MatchEvent, { type: 'trait' }>) {
+    const f = this.match.fighters[e.fighter]
+    const dust = (x: number, n = 2) => { for (let k = 0; k < n; k++) { const d = this.w(this.add.image(x + (k - n / 2) * 6, GROUND, 'dust').setDepth(4)); this.tweens.add({ targets: d, alpha: 0, y: GROUND - 8, x: d.x + (k - n / 2) * 6, duration: 360, onComplete: () => d.destroy() }) } }
+    switch (e.kind) {
+      case 'lens': this.popText(f.x, 84, `${LENSES[e.value ?? 1].name}!`, '#5eead4'); sfx('shutter'); break
+      case 'mark': this.popText(e.x, 18, 'MARK!', '#facc15'); sfx('trait'); break
+      case 'teleport': {
+        const from = e.value ?? f.x
+        const g = this.w(this.add.image(from, GROUND, this.texKeys[e.fighter], this.sprites[e.fighter].frame.name).setOrigin(0.5, FOOT_Y / FH).setFlipX(this.sprites[e.fighter].flipX).setTintFill(0xffffff).setAlpha(0.7).setDepth(4))
+        this.tweens.add({ targets: g, alpha: 0, scaleX: 0.2, duration: 220, onComplete: () => g.destroy() })
+        this.flash[e.fighter] = 4; dust(e.x, 3); this.popText(e.x, 84, '위치로!', '#facc15'); sfx('dash')
+        break
+      }
+      case 'rec': this.popText(f.x, 84, '● REC', '#ff5470'); sfx('select'); break
+      case 'recEnd': if ((e.value ?? 0) > 0) this.popText(f.x, 84, `녹음 완료 ${e.value}`, '#ff5470'); break
+      case 'playback': this.popText(f.x, 84, `플레이백 ${e.value}!`, '#86efac'); sfx('wave'); this.camKick = { x: f.facing * 4, y: 0 }; if ((e.value ?? 0) >= 100) this.cameras.main.shake(160, 0.01); break
+      case 'light': this.cameras.main.flash(120, 255, 250, 210); this.popText(e.x, 90, '조명 세팅!', '#fde68a'); sfx('trait'); break
+      case 'wall': dust(e.x, 3); this.popText(e.x, 56, '세트!', '#d6b27a'); sfx('heavy'); this.camKick = { x: 0, y: 2 }; break
+      case 'wallhit': dust(e.x, 1); sfx('block'); break
+      case 'wallbreak': {
+        for (let k = 0; k < 10; k++) { const b = this.w(this.add.rectangle(e.x, GROUND - 10 - k * 4, 4, 3, 0xc8955c).setDepth(30)); this.tweens.add({ targets: b, x: b.x + (Math.random() - 0.5) * 60, y: GROUND - Math.random() * 6, angle: 200, duration: 420, ease: 'Quad.out', onComplete: () => b.destroy() }) }
+        this.popText(e.x, 50, '와장창!', '#ff9f43'); sfx('hitHeavy')
+        break
+      }
+      case 'wallbounce': this.popText(e.x, 50, '벽꽝!', '#ff9f43'); this.cameras.main.shake(120, 0.012); sfx('hitHeavy'); dust(e.x, 2); break
+      case 'detonate': {
+        const o = this.match.fighters[1 - e.fighter]
+        for (let k = 0; k < 16 + (e.value ?? 1) * 4; k++) { const a = Math.random() * Math.PI * 2, r = 14 + Math.random() * 26; const p = this.w(this.add.rectangle(o.x, GROUND - o.y - 36, 3, 3, k % 3 ? 0xff7eb6 : 0xffffff).setDepth(31)); this.tweens.add({ targets: p, x: o.x + Math.cos(a) * r, y: GROUND - o.y - 36 + Math.sin(a) * r, alpha: 0, duration: 500, onComplete: () => p.destroy() }) }
+        this.popText(o.x, 80, `분장 완성 ×${e.value}!`, '#ff7eb6'); sfx('shutter')
+        break
       }
     }
   }
@@ -428,17 +535,24 @@ export class FightScene extends Phaser.Scene {
       const W = this.scale.width
       this.pauseLayer = this.ui(this.add.container(0, 0).setDepth(100))
       this.pauseLayer.add(this.add.rectangle(0, 0, W, 270, 0x000000, 0.78).setOrigin(0))
-      this.pauseLayer.add(text(this, W / 2, 30, 'PAUSE · 기술표', 16, COLOR.accent))
+      this.pauseLayer.add(text(this, W / 2, 18, 'PAUSE · 기술표', 16, COLOR.accent))
+      this.controls.show(false)   // 기술표를 가리지 않게 터치 버튼 숨김
       const ch = this.match.fighters[0].char
       const sp = (id: string) => ch.moves[id]?.cost ? ` (SP ${ch.moves[id]!.cost})` : ''
-      const lines = ch.combos.map((c) => `${c.seq.map((t) => BTN_LABEL[t]).join(' ')}  ▶  ${ch.moves[c.move]?.name ?? c.move}${sp(c.move)}`)
+      // 왼쪽: 커맨드 콤보 / 오른쪽: 특수·필살·고유 특성
+      const combos = ch.combos.map((c) => `${c.seq.map((t) => BTN_LABEL[t]).join(' ')} ▶ ${ch.moves[c.move]?.name ?? c.move}${sp(c.move)}`)
+      if (this.setup.stage != null && this.setup.stage < 4) combos.push('', '(직급이 오르면 기술이 더 생겨요)')
+      this.pauseLayer.add(text(this, 20, 40, '커맨드 콤보', 11, COLOR.dim, 0).setOrigin(0, 0))
+      this.pauseLayer.add(text(this, 20, 56, combos.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(3))
       const basic = [['특', 'special1'], ['↓+특', 'special2'], ['필살', 'super']].filter(([, id]) => ch.moves[id]).map(([k, id]) => `${k} ▶ ${ch.moves[id]!.name}${sp(id)}`)
-      lines.push(basic.join(' · '))
-      if (this.setup.stage != null && this.setup.stage < 4) lines.push('(직급이 오르면 기술이 더 생겨요)')
-      this.pauseLayer.add(text(this, W / 2, 112, lines.join('\n'), 11, COLOR.ink).setAlign('center').setLineSpacing(3))
-      this.pauseLayer.add(button(this, W / 2 - 80, 214, 140, 24, '계속하기', () => this.togglePause(), { color: 0x6a2c91 }))
-      this.pauseLayer.add(button(this, W / 2 + 80, 214, 140, 24, '메뉴로', () => this.scene.start('Menu')))
-    } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined }
+      this.pauseLayer.add(text(this, 250, 40, '특수기', 11, COLOR.dim, 0).setOrigin(0, 0))
+      this.pauseLayer.add(text(this, 250, 56, basic.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(3))
+      const ti = TRAIT_INFO[ch.trait]
+      this.pauseLayer.add(text(this, 250, 116, `고유 버튼 (O) ▶ ${ti.name}`, 11, '#5eead4', 0).setOrigin(0, 0))
+      this.pauseLayer.add(text(this, 250, 132, ti.desc, 11, COLOR.ink, 0).setOrigin(0, 0).setWordWrapWidth(215).setLineSpacing(2))
+      this.pauseLayer.add(button(this, W / 2 - 80, 246, 140, 24, '계속하기', () => this.togglePause(), { color: 0x6a2c91 }))
+      this.pauseLayer.add(button(this, W / 2 + 80, 246, 140, 24, '메뉴로', () => this.scene.start('Menu')))
+    } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.controls.show(true) }
   }
 
   private showResult() {
@@ -478,6 +592,7 @@ export class FightScene extends Phaser.Scene {
     this.match.fighters.forEach((f, i) => this.drawFighter(f, i))
     this.followCamera()
     this.drawProjectiles()
+    this.drawTraits()
     this.updateHud()
     if (this.dbg) this.drawDebug()
     if (this.match.phase === 'matchOver' && !this.resultShown && this.match.phaseFrame > 60) this.showResult()

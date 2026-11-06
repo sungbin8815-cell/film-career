@@ -61,6 +61,10 @@ export interface Pose {
   smear?: P[]
   /** 머리 기울기용 오프셋(앞으로 숙임 등) */
   squash?: number
+  /** 자유 장비 배치: long = 손에서 뻗는 방향, small = 한 손 장비, from = 앞손(F)/뒷손(B) */
+  item?: { long?: P; small?: SmallVar; at?: P; from?: 'F' | 'B' }
+  /** 특수 효과 위치 (앞손 기준) */
+  fx?: P
 }
 
 export class Grid {
@@ -238,7 +242,7 @@ function face(g: Grid, c: Costume, hx: number, hy: number, f: Face) {
 // ───── 캐릭터 한 프레임 ─────
 export function paint(c: Costume, pose: Pose, kit: Kit = KITS.camera): HTMLCanvasElement {
   const sh = (q: P): P => [q[0] + OX, q[1] + OY]
-  const p: Pose = { ...pose, hip: sh(pose.hip), knF: sh(pose.knF), ftF: sh(pose.ftF), knB: sh(pose.knB), ftB: sh(pose.ftB), sh: sh(pose.sh), elF: sh(pose.elF), hdF: sh(pose.hdF), elB: sh(pose.elB), hdB: sh(pose.hdB), head: sh(pose.head), smear: pose.smear?.map(sh) }
+  const p: Pose = { ...pose, fx: pose.fx, hip: sh(pose.hip), knF: sh(pose.knF), ftF: sh(pose.ftF), knB: sh(pose.knB), ftB: sh(pose.ftB), sh: sh(pose.sh), elF: sh(pose.elF), hdF: sh(pose.hdF), elB: sh(pose.elB), hdB: sh(pose.hdB), head: sh(pose.head), smear: pose.smear?.map(sh) }
   const g = new Grid()
   const pantsB = shade(c.pants, -0.1)
   const hoodB = shade(c.hoodie, -0.1)
@@ -251,6 +255,13 @@ export function paint(c: Costume, pose: Pose, kit: Kit = KITS.camera): HTMLCanva
   g.limb(p.hip, p.knB, 5, pantsB); g.limb(p.knB, p.ftB, 5, pantsB)
   shoe(p.ftB, shade(c.shoes, -0.12), true)
   if (p.prop === 'tripodBack') kit.long(g, [p.hdB[0], p.hdB[1]], [p.hdB[0] - 16, p.hdB[1] + 8])
+  const drawItem = () => {
+    const it = p.item!
+    const H = it.from === 'B' ? p.hdB : p.hdF
+    if (it.long) kit.long(g, [H[0], H[1]], [H[0] + it.long[0], H[1] + it.long[1]])
+    if (it.small) kit.small(g, H[0] + (it.at?.[0] ?? 3), H[1] + (it.at?.[1] ?? 1), it.small)
+  }
+  if (p.item?.from === 'B') drawItem()   // 뒷손 장비는 몸 뒤에
   g.limb(p.sh, p.elB, 4, hoodB); g.limb(p.elB, p.hdB, 4, hoodB)
   g.disc(p.hdB[0], p.hdB[1], 2, shade(c.gloves ?? c.skin, -0.08))
   // 몸통 (후드티)
@@ -362,6 +373,8 @@ export function paint(c: Costume, pose: Pose, kit: Kit = KITS.camera): HTMLCanva
     case 'tripodPoke': kit.long(g, [H[0] - 4, H[1]], [H[0] + 24, H[1] - 1]); break
     case 'fxFront': kit.fx(g, H[0] + 10, H[1] - 1); break
   }
+  if (p.item && p.item.from !== 'B') drawItem()
+  if (p.fx) kit.fx(g, H[0] + p.fx[0], H[1] + p.fx[1])
   g.shadeAll()
   g.outline()
   // 휘두름 잔상 (외곽선 없이 반투명)

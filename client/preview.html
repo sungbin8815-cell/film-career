@@ -5,7 +5,7 @@
 <script type="module">
 // 개발용: npm run dev → http://localhost:5173/preview.html  (?anims=idle,light 로 동작 고르기)
 import { paint, KITS } from './src/gfx/Painter.ts'
-import { ANIMS } from './src/gfx/poses.ts'
+import { animsFor } from './src/gfx/charPoses.ts'
 import { COSTUMES } from './src/gfx/TextureFactory.ts'
 import { KIT_OF } from './src/config/characters.ts'
 const want = (new URLSearchParams(location.search).get('anims') ?? 'idle,light,heavy,poke,throw,burst,flash').split(',')
@@ -13,7 +13,8 @@ const keys = (new URLSearchParams(location.search).get('keys') ?? 'dp,director,s
 const out = document.getElementById('out')
 for (const key of keys) {
   const row = document.createElement('div'); row.className = 'row'
-  for (const name of want) ANIMS[name].frames.forEach((p, i) => {
+  const ANIMS = animsFor(key.replace(/_(alt|boss)$/, ''))
+  for (const name of want) (ANIMS[name]?.frames ?? []).forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'c'
     const c = paint(COSTUMES[key], p, KITS[KIT_OF[key.replace(/_(alt|boss)$/, '')]])
     const big = document.createElement('canvas'); big.width = c.width; big.height = c.height; big.getContext('2d').drawImage(c, 0, 0)

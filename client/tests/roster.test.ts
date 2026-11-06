@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Match } from '../src/core/Match'
 import { CHARACTERS, atRank, getCharacter } from '../src/config/characters'
 import { STAGES, opponentFor } from '../src/config/stages'
-import { ANIMS } from '../src/gfx/poses'
+import { animsFor } from '../src/gfx/charPoses'
 import { SimpleAI } from '../src/core/AI'
 import { emptyInput, type InputState } from '../src/core/types'
 
@@ -14,7 +14,10 @@ describe('캐릭터 데이터', () => {
       for (const id of ['light', 'heavy', 'special1', 'special2', 'super']) expect(c.moves[id], `${c.id}.${id}`).toBeTruthy()
       expect(c.combos.length, c.id).toBe(6)
       for (const k of c.combos) expect(c.moves[k.move], `${c.id} combo ${k.move}`).toBeTruthy()
-      for (const m of Object.values(c.moves)) expect(ANIMS[m.anim ?? m.id], `${c.id}.${m.id} anim ${m.anim}`).toBeTruthy()
+      const A = animsFor(c.id)
+      for (const m of Object.values(c.moves)) expect(A[m.anim ?? m.id], `${c.id}.${m.id} anim ${m.anim}`).toBeTruthy()
+      // 촬영감독 외에는 모든 공격·특성 동작이 전용 동작
+      if (c.id !== 'dp') for (const id of Object.keys(c.moves)) expect(A[id], `${c.id} 전용 ${id}`).not.toBe(animsFor('dp')[id])
       expect(c.titles.length).toBe(5)
     }
   })
@@ -42,7 +45,8 @@ describe('스테이지 모드 직급', () => {
   it('막내는 기본기만, 감독은 전부', () => {
     for (const c of CHARACTERS) {
       const m0 = atRank(c, 0)
-      expect(Object.keys(m0.moves).sort()).toEqual(['heavy', 'light', 'special1', 'sweep'])
+      expect(Object.keys(m0.moves).filter((k) => !k.startsWith('trait')).sort()).toEqual(['heavy', 'light', 'special1', 'sweep'])
+      expect(m0.moves.trait, `${c.id} 막내도 고유 특성`).toBeTruthy()
       expect(m0.combos.map((k) => k.move)).toEqual(['sweep'])
       expect(Object.keys(atRank(c, 4).moves).length).toBe(Object.keys(c.moves).length)
       expect(atRank(c, 2).moves.super).toBeUndefined()
@@ -86,21 +90,23 @@ function aiVsAi(a: string, b: string, n: number) {
 }
 
 describe('밸런스', () => {
-  it('어떤 캐릭터도 다른 캐릭터에게 일방적으로 지거나 이기지 않는다 (AI끼리)', () => {
+  it('어떤 캐릭터도 다른 캐릭터에게 일방적으로 지거나 이기지 않는다 (AI끼리, 양쪽 자리 바꿔 평균)', () => {
     const ids = CHARACTERS.map((c) => c.id)
+    const w: Record<string, number> = {}
+    for (const a of ids) for (const b of ids) if (a !== b) w[a + b] = aiVsAi(a, b, 24)
     const rows: string[] = []
     let worst = 0.5
     for (const a of ids) {
       const r: string[] = []
       for (const b of ids) {
         if (a === b) { r.push('  -'); continue }
-        const w = aiVsAi(a, b, 20)
-        worst = Math.min(worst, w, 1 - w)
-        r.push(String(Math.round(w * 100)).padStart(3))
+        const v = (w[a + b] + 1 - w[b + a]) / 2
+        worst = Math.min(worst, v)
+        r.push(String(Math.round(v * 100)).padStart(3))
       }
       rows.push(`${a.padEnd(9)}${r.join(' ')}`)
     }
-    console.log('승률표 (행이 이긴 비율 %)\n' + rows.join('\n'))
-    expect(worst).toBeGreaterThanOrEqual(0.2)
-  }, 60000)
+    console.log('승률표 (행 캐릭터가 이긴 비율 %, 양쪽 자리 평균)\n' + rows.join('\n'))
+    expect(worst).toBeGreaterThanOrEqual(0.25)
+  }, 120000)
 })

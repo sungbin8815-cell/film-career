@@ -5,7 +5,7 @@ import { emptyInput, type InputState } from '../core/types'
 const KEYMAP: Record<string, keyof InputState> = {
   a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right',
   w: 'up', arrowup: 'up', s: 'down', arrowdown: 'down',
-  j: 'light', k: 'heavy', l: 'special', i: 'guard', ' ': 'guard', u: 'super',
+  j: 'light', k: 'heavy', l: 'special', i: 'guard', ' ': 'guard', u: 'super', o: 'trait',
 }
 
 export class Controls {
@@ -15,6 +15,7 @@ export class Controls {
   private root: HTMLElement
   private superBtn!: HTMLButtonElement
   private specialBtn!: HTMLButtonElement
+  private traitBtn!: HTMLButtonElement
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -38,6 +39,13 @@ export class Controls {
   setMeter(meter: number) {
     this.superBtn.classList.toggle('ready', meter >= 100)
     this.specialBtn.classList.toggle('ready', meter >= 25)
+  }
+
+  /** 고유 버튼: 캐릭터마다 이름이 바뀌고, 쓸 수 있을 때 불이 켜짐 */
+  setTrait(label: string, ready: boolean) {
+    const b = this.traitBtn.querySelector('b')!
+    if (b.textContent !== label) { b.textContent = label; this.traitBtn.classList.toggle('long', label.length > 2) }
+    this.traitBtn.classList.toggle('ready', ready)
   }
 
   private onKey(e: KeyboardEvent, down: boolean) {
@@ -91,6 +99,7 @@ export class Controls {
     mk('heavy', '강', '강공격', 'b-heavy')
     this.specialBtn = mk('special', '특', '특수기 (▼+특 = 다른 기술)', 'b-special')
     mk('guard', '방어', '방어', 'b-guard')
+    this.traitBtn = mk('trait', '고유', '직업 고유 특성', 'b-trait')
     this.superBtn = mk('super', '필살', '필살기', 'b-super')
     this.root.append(dpad, btns)
     // 길게 눌러도 메뉴·확대가 안 뜨게
