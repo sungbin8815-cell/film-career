@@ -1,7 +1,7 @@
 // 상태 기반 AI. 플레이어와 같은 InputState를 만들어 넣습니다(=치트 없음).
 // 상대 기술을 "보고" 반응하는 데 걸리는 시간(react)을 두어 사람처럼 늦게 막습니다.
 import type { Fighter } from './Fighter'
-import type { InputState } from './types'
+import type { InputState, Btn } from './types'
 import { emptyInput } from './types'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
@@ -24,6 +24,7 @@ export class SimpleAI {
   private downWithSpecial = false
   private seenOppMove = -1
   private wasHit = false
+  private queue: Btn[] = []
   private readonly p: (typeof PARAM)[Difficulty]
 
   constructor(readonly difficulty: Difficulty = 'normal') { this.p = PARAM[difficulty] }
@@ -46,8 +47,18 @@ export class SimpleAI {
     if (me.inHitstun) this.wasHit = true
     else if (this.wasHit) { this.wasHit = false; if (r() < this.p.afterHitGuard) { this.plan = 'guard'; this.planT = 20 } }
 
-    // 3) 내 기술이 맞았으면 이어서 콤보
-    if (me.state === 'attack' && me.hitConfirmed && !this.press && r() < this.p.combo / 3) {
+    // 3) 커맨드 콤보 진행: 지금 기술의 startup이 끝나면 다음 버튼
+    if (this.queue.length && !this.press) {
+      if (me.state === 'attack' && me.move && me.moveFrame >= me.move.startup) {
+        // 헛치면 잘하는 AI일수록 콤보를 멈춤 (헛친 콤보는 반격당하기 쉬움)
+        if (!me.hitConfirmed && me.moveFrame >= me.move.startup + me.move.active && r() < this.p.combo * 0.8) this.queue = []
+        else if (me.hitConfirmed || me.moveFrame >= me.move.startup + me.move.active) this.tapBtn(this.queue.shift()!)
+      }
+      else if (me.state !== 'attack') this.queue = []
+    }
+    if (me.inHitstun) this.queue = []
+    // 3-b) 내 기술이 맞았으면 이어서 캔슬
+    if (!this.queue.length && me.state === 'attack' && me.hitConfirmed && !this.press && r() < this.p.combo / 3) {
       const next = me.move?.id === 'light' ? (r() < 0.5 ? 'light' : 'heavy') : me.meter >= 25 ? 'special' : null
       if (next) this.tap(next as keyof InputState)
     }
@@ -64,6 +75,11 @@ export class SimpleAI {
       if (this.plan === 'attack') {
         if (me.meter >= 100 && r() < this.p.special) this.tap('super')
         else if (me.meter >= 25 && r() < this.p.special / 2) this.tap('special')
+        else if (r() < this.p.combo * 0.45) {
+          const ok = me.char.combos.filter((c) => (me.char.moves[c.move]?.cost ?? 0) <= me.meter)
+          const c = ok[Math.floor(r() * ok.length)]
+          if (c) { this.queue = [...c.seq]; this.tapBtn(this.queue.shift()!) } else this.tap('light')
+        }
         else this.tap(r() < 0.6 ? 'light' : 'heavy')
       }
       if (this.plan === 'approach' && dist > 110 && me.meter >= 25 && r() < this.p.special / 3) { this.tap('special'); this.downWithSpecial = true }
@@ -87,4 +103,8 @@ export class SimpleAI {
   }
 
   private tap(k: keyof InputState) { this.press = k; this.pressT = 2 }
+  private tapBtn(b: Btn) {
+    const k = ({ L: 'light', H: 'heavy', S: 'special', X: 'super' } as const)[b.replace('d', '') as 'L' | 'H' | 'S' | 'X']
+    this.tap(k); this.downWithSpecial = b.startsWith('d')
+  }
 }

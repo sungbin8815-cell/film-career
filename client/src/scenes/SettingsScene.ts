@@ -19,14 +19,15 @@ export class SettingsScene extends Phaser.Scene {
       diff.label.setText(`상대 AI 난이도: ${settings.difficulty.toUpperCase()}`)
     }
     draw()
-    text(this, W / 2, 162, [
+    text(this, W / 2, 164, [
       '조작법',
       '휴대폰: 왼쪽 방향패드 · 오른쪽 버튼',
       '키보드: A D 이동 · W 점프 · S 앉기',
       'J 약 · K 강 · L 특수 · I/스페이스 방어 · U 필살',
       '▼ + 특 = 조명 낙하 · 같은 방향 두 번 = 달리기',
-      '약 → 약 → 강 → 특 순서로 이어 치면 콤보!',
+      '콤보: 약약강 어퍼 · 약강강 줌인 펀치 · 강강 회전베기',
+      '약약특 플래시(SP10) · 약강특 러시(SP25) · ▼+강 스윕',
     ].join('\n'), 11, COLOR.ink).setAlign('center').setLineSpacing(2)
-    button(this, W / 2, 240, 120, 24, '← 메뉴', () => this.scene.start('Menu'))
+    button(this, W / 2, 250, 120, 22, '← 메뉴', () => this.scene.start('Menu'))
   }
 }

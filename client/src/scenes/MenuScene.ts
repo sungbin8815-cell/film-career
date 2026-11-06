@@ -2,6 +2,7 @@
 import Phaser from 'phaser'
 import { button, logo, text, COLOR } from '../ui/widgets'
 import { animKey } from '../gfx/TextureFactory'
+import { FH, FOOT_Y } from '../gfx/Painter'
 import { unlockAudio, sfx } from '../audio/Sfx'
 
 export class MenuScene extends Phaser.Scene {
@@ -12,8 +13,8 @@ export class MenuScene extends Phaser.Scene {
     this.add.image(0, 0, 'stage_chroma').setOrigin(0).setAlpha(0.35)
     this.add.rectangle(0, 0, W, 270, COLOR.bg, 0.55).setOrigin(0)
     // 양쪽에서 노려보는 촬영감독들
-    this.add.sprite(70, 210, 'dp').setOrigin(0.5, 62 / 64).setScale(2).play(animKey('dp', 'idle'))
-    this.add.sprite(410, 210, 'dp_alt').setOrigin(0.5, 62 / 64).setScale(2).setFlipX(true).play(animKey('dp_alt', 'guard'))
+    this.add.sprite(70, 210, 'dp').setOrigin(0.5, FOOT_Y / FH).setScale(2).play(animKey('dp', 'idle'))
+    this.add.sprite(410, 210, 'dp_alt').setOrigin(0.5, FOOT_Y / FH).setScale(2).setFlipX(true).play(animKey('dp_alt', 'guard'))
     logo(this, W / 2, 52, 40)
     text(this, W / 2, 84, '촬영장 직업인들의 병맛 픽셀 격투', 11, COLOR.dim)
 

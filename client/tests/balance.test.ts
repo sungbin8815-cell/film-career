@@ -44,3 +44,20 @@ describe('난이도', () => {
     expect(n).toBeGreaterThanOrEqual(h)
   })
 })
+
+describe('AI 커맨드 콤보', () => {
+  it('HARD AI가 콤보 기술을 실제로 씀', () => {
+    const used = new Set<string>()
+    for (let k = 0; k < 10; k++) {
+      const m = new Match(DP, DP)
+      const ai = new SimpleAI('hard')
+      for (let i = 0; i < 60 * 60 * 2 && m.phase !== 'matchOver'; i++) {
+        const [a, b] = m.fighters
+        m.step([masher(a, b, i), ai.input(b, a, i)])
+        for (const e of m.events) if (e.type === 'move' && e.fighter === 1 && e.combo) used.add(e.move)
+      }
+    }
+    console.log('AI가 쓴 콤보:', [...used].join(', '))
+    expect(used.size).toBeGreaterThanOrEqual(2)
+  })
+})

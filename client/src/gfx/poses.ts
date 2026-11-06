@@ -1,90 +1,165 @@
-// 애니메이션 프레임 = 관절 좌표 모음. 48×64 칸, 발바닥 y=62, 오른쪽을 봄.
-// 새 캐릭터는 같은 포즈를 쓰고 의상(Costume)과 장비(prop)만 바꿔도 됩니다.
+// 애니메이션 = 관절 좌표 프레임 모음. 64×64 칸, 발바닥 y≈62, 오른쪽을 봄.
+// 새 캐릭터는 같은 포즈를 쓰고 의상(Costume)·장비(prop)만 바꿔도 됩니다.
+// 공격 기술은 frames 순서: [준비, (준비2), 판정, 회수] — FightScene이 프레임 데이터에 맞춰 고릅니다.
 import type { Pose } from './Painter'
 
+type P2 = [number, number]
 const base: Pose = {
-  hip: [22, 42], knF: [25, 51], ftF: [26, 61], knB: [19, 51], ftB: [17, 61],
-  sh: [23, 28], elF: [27, 34], hdF: [30, 38], elB: [19, 34], hdB: [20, 39],
-  head: [24, 19], prop: 'cameraShoulder',
+  head: [33, 17], sh: [32, 32], hip: [31, 43],
+  knF: [34, 50], ftF: [36, 58], knB: [28, 50], ftB: [26, 58],
+  elF: [36, 35], hdF: [38, 39], elB: [27, 35], hdB: [26, 39],
+  prop: 'cameraHip',
 }
-const P = (o: Partial<Pose>): Pose => ({ ...base, ...o })
-const up = (p: Pose, d: number): Pose => ({
-  ...p,
-  hip: [p.hip[0], p.hip[1] + d], sh: [p.sh[0], p.sh[1] + d], head: [p.head[0], p.head[1] + d],
-  elF: [p.elF[0], p.elF[1] + d], hdF: [p.hdF[0], p.hdF[1] + d], elB: [p.elB[0], p.elB[1] + d], hdB: [p.hdB[0], p.hdB[1] + d],
-})
+const P = (o: Partial<Pose>): Pose => ({ ...base, elF: [37, 37], hdF: [39, 41], ...o })
+/** 상체 전체를 옮김 (숨쉬기·숙이기) */
+const up = (p: Pose, dx: number, dy: number): Pose => {
+  const m = (q: P2): P2 => [q[0] + dx, q[1] + dy]
+  return { ...p, head: m(p.head), sh: m(p.sh), hip: [p.hip[0] + dx * 0.5, p.hip[1] + dy], elF: m(p.elF), hdF: m(p.hdF), elB: m(p.elB), hdB: m(p.hdB) }
+}
+/** 몸 전체를 옮김 (점프·넉백) */
+const all = (p: Pose, dx: number, dy: number): Pose => {
+  const m = (q: P2): P2 => [q[0] + dx, q[1] + dy]
+  return { ...p, head: m(p.head), sh: m(p.sh), hip: m(p.hip), knF: m(p.knF), ftF: m(p.ftF), knB: m(p.knB), ftB: m(p.ftB), elF: m(p.elF), hdF: m(p.hdF), elB: m(p.elB), hdB: m(p.hdB) }
+}
 
-// 기본 자세: 카메라를 어깨에 메고 앞손으로 받침
-const idle0 = P({ elF: [27, 30], hdF: [26, 25] })
-const idle1 = up(idle0, 1)
+const stance = P({ ftF: [38, 58], knF: [36, 50], ftB: [24, 58], knB: [27, 50] })
 
-export const ANIMS: Record<string, { frames: Pose[]; fps: number; loop: boolean }> = {
-  idle: { frames: [idle0, idle1], fps: 3, loop: true },
+export interface AnimDef { frames: Pose[]; fps: number; loop: boolean }
+
+export const ANIMS: Record<string, AnimDef> = {
+  idle: { frames: [stance, stance, up(stance, 0, 1), up({ ...stance, face: 'blink' }, 0, 1)], fps: 4, loop: true },
   walk: {
     frames: [
-      P({ elF: [27, 30], hdF: [26, 25], knF: [27, 50], ftF: [30, 61], knB: [18, 52], ftB: [14, 61] }),
-      up(P({ elF: [27, 30], hdF: [26, 25], knF: [24, 51], ftF: [24, 61], knB: [21, 51], ftB: [20, 61] }), -1),
-      P({ elF: [27, 30], hdF: [26, 25], knF: [21, 52], ftF: [17, 61], knB: [26, 50], ftB: [29, 61] }),
-      up(P({ elF: [27, 30], hdF: [26, 25], knF: [23, 51], ftF: [22, 61], knB: [23, 51], ftB: [23, 61] }), -1),
-    ], fps: 8, loop: true,
+      P({ knF: [36, 49], ftF: [40, 58], knB: [27, 51], ftB: [22, 58] }),
+      up(P({ knF: [33, 50], ftF: [33, 58], knB: [30, 50], ftB: [29, 58] }), 0, -1),
+      P({ knF: [30, 51], ftF: [26, 58], knB: [33, 49], ftB: [38, 58] }),
+      up(P({ knF: [32, 50], ftF: [31, 58], knB: [31, 50], ftB: [31, 58] }), 0, -1),
+    ], fps: 9, loop: true,
   },
   run: {
     frames: [
-      P({ hip: [22, 41], sh: [26, 28], head: [28, 20], elF: [30, 30], hdF: [29, 25], knF: [29, 48], ftF: [34, 58], knB: [16, 50], ftB: [10, 56], elB: [18, 33], hdB: [15, 37] }),
-      P({ hip: [22, 40], sh: [26, 27], head: [28, 19], elF: [30, 29], hdF: [29, 24], knF: [24, 50], ftF: [22, 61], knB: [22, 49], ftB: [18, 56], elB: [21, 32], hdB: [24, 36] }),
-      P({ hip: [22, 41], sh: [26, 28], head: [28, 20], elF: [30, 30], hdF: [29, 25], knF: [16, 50], ftF: [11, 57], knB: [28, 48], ftB: [33, 58], elB: [24, 34], hdB: [28, 38] }),
-      P({ hip: [22, 40], sh: [26, 27], head: [28, 19], elF: [30, 29], hdF: [29, 24], knF: [22, 49], ftF: [19, 56], knB: [24, 50], ftB: [23, 61], elB: [21, 32], hdB: [18, 36] }),
-    ], fps: 12, loop: true,
+      P({ head: [38, 18], sh: [35, 31], hip: [31, 42], elF: [40, 32], hdF: [39, 27], elB: [28, 36], hdB: [24, 39], knF: [37, 47], ftF: [43, 54], knB: [25, 50], ftB: [19, 54], face: 'focus' }),
+      up(P({ head: [38, 17], sh: [35, 30], hip: [31, 41], elF: [40, 31], hdF: [39, 26], elB: [31, 35], hdB: [33, 38], knF: [32, 50], ftF: [30, 58], knB: [30, 48], ftB: [26, 53], face: 'focus' }), 0, -1),
+      P({ head: [38, 18], sh: [35, 31], hip: [31, 42], elF: [40, 32], hdF: [39, 27], elB: [33, 37], hdB: [37, 39], knF: [25, 50], ftF: [19, 55], knB: [37, 47], ftB: [42, 54], face: 'focus' }),
+      up(P({ head: [38, 17], sh: [35, 30], hip: [31, 41], elF: [40, 31], hdF: [39, 26], elB: [29, 35], hdB: [26, 38], knF: [30, 48], ftF: [27, 53], knB: [32, 50], ftB: [31, 58], face: 'focus' }), 0, -1),
+    ], fps: 13, loop: true,
   },
-  jump: { frames: [P({ hip: [22, 38], knF: [28, 42], ftF: [26, 50], knB: [17, 44], ftB: [18, 52], sh: [23, 25], head: [24, 16], elF: [28, 26], hdF: [27, 21], elB: [17, 28], hdB: [14, 24] })], fps: 1, loop: false },
-  fall: { frames: [P({ hip: [22, 38], knF: [26, 47], ftF: [28, 56], knB: [19, 47], ftB: [16, 55], sh: [23, 25], head: [24, 16], elF: [29, 22], hdF: [31, 17], elB: [16, 22], hdB: [13, 17], face: 'shout', prop: 'none' })], fps: 1, loop: false },
-  crouch: { frames: [P({ hip: [22, 50], knF: [29, 53], ftF: [27, 61], knB: [16, 54], ftB: [17, 61], sh: [24, 38], head: [26, 29], elF: [29, 40], hdF: [28, 35], elB: [20, 43], hdB: [22, 47] })], fps: 1, loop: false },
-  // 약: 카메라 손잡이로 쿡
+  jump: {
+    frames: [
+      all(P({ knF: [37, 45], ftF: [35, 52], knB: [26, 46], ftB: [27, 53], elB: [24, 30], hdB: [21, 26], face: 'shout' }), 0, -2),
+    ], fps: 1, loop: false,
+  },
+  fall: { frames: [P({ knF: [35, 50], ftF: [38, 57], knB: [28, 49], ftB: [24, 55], elF: [39, 26], hdF: [42, 21], elB: [24, 26], hdB: [20, 21], prop: 'none', face: 'shout' })], fps: 1, loop: false },
+  crouch: { frames: [P({ head: [35, 27], sh: [33, 40], hip: [31, 49], knF: [39, 51], ftF: [38, 58], knB: [24, 53], ftB: [25, 58], elF: [38, 43], hdF: [37, 38], elB: [28, 45], hdB: [29, 49] })], fps: 1, loop: false },
+
+  // ───── 기본기 ─────
   light: {
     frames: [
-      P({ sh: [22, 28], head: [23, 19], elF: [24, 32], hdF: [27, 31], prop: 'cameraLow', face: 'angry' }),
-      P({ sh: [25, 28], head: [27, 19], elF: [32, 31], hdF: [38, 30], prop: 'cameraFront', face: 'shout', knF: [28, 51], ftF: [31, 61] }),
-      P({ sh: [24, 28], head: [25, 19], elF: [29, 32], hdF: [33, 32], prop: 'cameraFront', face: 'angry' }),
+      P({ head: [32, 16], sh: [30, 30], elF: [30, 34], hdF: [32, 34], prop: 'cameraLow', face: 'focus', ftF: [38, 58] }),
+      P({ head: [37, 16], sh: [35, 30], elF: [42, 32], hdF: [48, 31], prop: 'cameraFront', face: 'shout', knF: [38, 50], ftF: [42, 58], smear: [[34, 36], [42, 33], [54, 30]] }),
+      P({ head: [35, 16], sh: [33, 30], elF: [39, 34], hdF: [43, 34], prop: 'cameraFront', face: 'angry', ftF: [40, 58] }),
     ], fps: 20, loop: false,
   },
-  // 강: 삼각대 휘두르기
   heavy: {
     frames: [
-      P({ sh: [21, 28], head: [21, 19], elF: [20, 22], hdF: [17, 17], elB: [18, 24], hdB: [16, 18], prop: 'tripodSwing', face: 'angry', ftB: [14, 61] }),
-      P({ sh: [26, 29], head: [29, 21], elF: [32, 30], hdF: [36, 31], elB: [28, 32], hdB: [33, 33], prop: 'tripodFront', face: 'shout', knF: [30, 50], ftF: [34, 61] }),
-      P({ sh: [25, 30], head: [27, 22], elF: [30, 36], hdF: [32, 41], elB: [26, 36], hdB: [29, 42], prop: 'tripodFront', face: 'normal', knF: [29, 51], ftF: [33, 61] }),
+      P({ head: [30, 17], sh: [29, 31], elF: [27, 24], hdF: [25, 19], elB: [26, 26], hdB: [24, 21], prop: 'tripodOver', face: 'angry', ftB: [21, 58], knB: [25, 50] }),
+      P({ head: [33, 16], sh: [32, 30], elF: [36, 22], hdF: [38, 17], elB: [33, 24], hdB: [36, 19], prop: 'tripodUp', face: 'shout', smear: [[16, 12], [28, 2], [44, 4]] }),
+      P({ head: [38, 19], sh: [36, 32], elF: [42, 32], hdF: [46, 33], elB: [38, 34], hdB: [43, 35], prop: 'tripodFront', face: 'shout', knF: [39, 50], ftF: [44, 58], smear: [[46, 8], [60, 18], [62, 36]] }),
+      P({ head: [36, 19], sh: [34, 32], elF: [39, 37], hdF: [41, 42], elB: [35, 38], hdB: [38, 43], prop: 'tripodLow', face: 'normal', knF: [38, 51], ftF: [42, 58] }),
     ], fps: 10, loop: false,
   },
-  // 특수1: 숄더 어택 (카메라 메고 돌진)
   special1: {
     frames: [
-      P({ hip: [20, 43], sh: [24, 31], head: [27, 23], knF: [26, 50], ftF: [30, 61], knB: [15, 52], ftB: [10, 61], prop: 'cameraShoulder', face: 'angry' }),
-      P({ hip: [21, 42], sh: [28, 30], head: [31, 23], elF: [32, 31], hdF: [31, 26], knF: [28, 48], ftF: [34, 57], knB: [15, 50], ftB: [9, 58], prop: 'cameraShoulder', face: 'shout' }),
+      P({ head: [31, 21], sh: [30, 34], hip: [29, 45], knF: [35, 51], ftF: [38, 58], knB: [23, 53], ftB: [20, 58], face: 'angry' }),
+      P({ head: [40, 21], sh: [37, 32], hip: [31, 42], elF: [42, 32], hdF: [41, 27], knF: [37, 48], ftF: [44, 55], knB: [24, 50], ftB: [17, 55], face: 'shout', smear: [[6, 30], [16, 32], [22, 34]] }),
+      P({ head: [41, 21], sh: [38, 32], hip: [31, 42], elF: [43, 32], hdF: [42, 27], knF: [36, 50], ftF: [41, 58], knB: [24, 49], ftB: [18, 54], face: 'shout', smear: [[4, 26], [14, 30], [22, 32]] }),
     ], fps: 10, loop: false,
   },
-  // 특수2: 조명 낙하 (스탠드를 앞으로 밀어 넘어뜨림)
   special2: {
     frames: [
-      P({ elF: [26, 22], hdF: [28, 16], prop: 'cameraLow', face: 'happy' }),
-      P({ sh: [25, 28], head: [27, 19], elF: [31, 26], hdF: [36, 22], prop: 'none', face: 'shout' }),
+      P({ elF: [37, 24], hdF: [39, 18], prop: 'cameraLow', face: 'happy' }),
+      P({ head: [36, 16], sh: [34, 30], elF: [40, 27], hdF: [46, 24], prop: 'none', face: 'shout' }),
+      P({ head: [35, 16], elF: [40, 30], hdF: [45, 29], elB: [29, 32], hdB: [31, 37], prop: 'none', face: 'happy' }),
     ], fps: 6, loop: false,
   },
-  // 필살: 원테이크 (카메라를 앞으로 들고 달림)
   super: {
     frames: [
-      P({ hip: [22, 41], sh: [27, 28], head: [29, 20], elF: [32, 29], hdF: [36, 28], knF: [29, 48], ftF: [34, 58], knB: [16, 50], ftB: [10, 56], prop: 'cameraFront', face: 'shout' }),
-      P({ hip: [22, 40], sh: [27, 27], head: [29, 19], elF: [32, 28], hdF: [36, 27], knF: [16, 50], ftF: [11, 57], knB: [28, 48], ftB: [33, 58], prop: 'cameraFront', face: 'shout' }),
+      P({ head: [40, 19], sh: [37, 31], elF: [42, 32], hdF: [46, 31], prop: 'cameraFront', knF: [38, 47], ftF: [44, 54], knB: [25, 50], ftB: [19, 54], face: 'shout', smear: [[2, 28], [14, 30], [24, 32]] }),
+      P({ head: [40, 18], sh: [37, 30], elF: [42, 31], hdF: [46, 30], prop: 'cameraFront', knF: [26, 50], ftF: [20, 55], knB: [37, 47], ftB: [42, 54], face: 'shout', smear: [[2, 34], [14, 32], [24, 34]] }),
     ], fps: 14, loop: true,
   },
-  hit: { frames: [P({ hip: [20, 42], sh: [17, 29], head: [15, 21], elF: [22, 33], hdF: [26, 30], elB: [13, 32], hdB: [10, 28], face: 'hurt', prop: 'none', ftF: [27, 61] })], fps: 1, loop: false },
-  knockback: { frames: [P({ hip: [24, 36], knF: [31, 40], ftF: [36, 46], knB: [29, 44], ftB: [34, 50], sh: [17, 28], head: [13, 22], elF: [20, 20], hdF: [24, 15], elB: [12, 30], hdB: [8, 26], face: 'hurt', prop: 'none' })], fps: 1, loop: false },
-  knockdown: { frames: [P({ face: 'hurt', prop: 'none', lie: true, elF: [28, 32], hdF: [33, 30] })], fps: 1, loop: false },
-  guard: { frames: [P({ sh: [22, 29], head: [22, 20], elF: [28, 27], hdF: [28, 21], elB: [26, 32], hdB: [29, 28], prop: 'cameraUp', face: 'angry', ftF: [28, 61], ftB: [15, 61] })], fps: 1, loop: false },
+
+  // ───── 커맨드 콤보 기술 ─────
+  upper: {
+    frames: [
+      P({ head: [34, 25], sh: [32, 37], hip: [30, 47], knF: [38, 51], ftF: [39, 58], knB: [24, 53], ftB: [24, 58], elF: [37, 43], hdF: [40, 47], elB: [33, 44], hdB: [37, 48], prop: 'tripodLow', face: 'focus' }),
+      all(P({ head: [37, 13], sh: [35, 27], hip: [32, 39], elF: [40, 22], hdF: [42, 16], elB: [37, 24], hdB: [40, 18], knF: [36, 48], ftF: [37, 56], knB: [28, 48], ftB: [27, 56], prop: 'tripodUp', face: 'shout', smear: [[52, 54], [58, 34], [52, 6]] }), 0, -3),
+      all(P({ head: [36, 13], sh: [34, 27], hip: [32, 39], elF: [38, 20], hdF: [40, 14], elB: [36, 22], hdB: [39, 16], knF: [37, 46], ftF: [35, 52], knB: [28, 47], ftB: [27, 54], prop: 'tripodUp', face: 'shout' }), 0, -5),
+      P({ elF: [37, 33], hdF: [39, 37], prop: 'tripodLow', face: 'happy' }),
+    ], fps: 10, loop: false,
+  },
+  spin: {
+    frames: [
+      P({ head: [36, 17], elF: [41, 32], hdF: [45, 32], prop: 'tripodSpinA', face: 'shout', smear: [[10, 18], [30, 4], [56, 14]] }),
+      P({ head: [33, 17], elB: [24, 32], hdB: [20, 32], elF: [33, 33], hdF: [32, 36], prop: 'tripodSpinB', face: 'shout', smear: [[58, 30], [40, 44], [8, 36]] }),
+    ], fps: 16, loop: true,
+  },
+  zoompunch: {
+    frames: [
+      P({ head: [29, 17], sh: [28, 31], elF: [26, 34], hdF: [24, 33], prop: 'cameraLow', face: 'focus', ftB: [20, 58], knB: [24, 50] }),
+      P({ head: [41, 19], sh: [38, 31], elF: [46, 31], hdF: [53, 30], prop: 'cameraFront', face: 'shout', knF: [41, 49], ftF: [47, 57], knB: [26, 50], ftB: [18, 56], smear: [[4, 26], [20, 28], [40, 30]] }),
+      P({ head: [38, 18], sh: [36, 31], elF: [42, 33], hdF: [47, 33], prop: 'cameraFront', face: 'angry', knF: [39, 50], ftF: [44, 58] }),
+    ], fps: 12, loop: false,
+  },
+  flash: {
+    frames: [
+      P({ elF: [38, 27], hdF: [42, 24], prop: 'cameraFront', face: 'happy' }),
+      P({ head: [36, 16], elF: [41, 28], hdF: [46, 26], prop: 'cameraFlash', face: 'happy' }),
+      P({ elF: [38, 29], hdF: [42, 27], prop: 'cameraFront', face: 'happy' }),
+    ], fps: 12, loop: false,
+  },
+  rush: {
+    frames: [
+      P({ head: [38, 18], sh: [35, 31], elF: [44, 31], hdF: [50, 30], elB: [29, 35], hdB: [27, 38], prop: 'none', face: 'shout', knF: [37, 50], ftF: [42, 58], smear: [[30, 30], [44, 29], [56, 29]] }),
+      P({ head: [38, 18], sh: [35, 31], elF: [37, 35], hdF: [36, 38], elB: [42, 33], hdB: [49, 34], prop: 'none', face: 'angry', knF: [36, 50], ftF: [40, 58], smear: [[30, 36], [44, 34], [56, 34]] }),
+      P({ head: [38, 17], sh: [35, 30], elF: [44, 26], hdF: [50, 22], elB: [29, 35], hdB: [27, 38], prop: 'none', face: 'shout', knF: [37, 50], ftF: [42, 58], smear: [[32, 34], [44, 26], [54, 18]] }),
+    ], fps: 15, loop: true,
+  },
+  sweep: {
+    frames: [
+      P({ head: [33, 26], sh: [31, 38], hip: [29, 48], knF: [36, 52], ftF: [37, 58], knB: [23, 53], ftB: [23, 58], elF: [36, 44], hdF: [39, 48], prop: 'tripodLow', face: 'focus' }),
+      P({ head: [30, 27], sh: [29, 39], hip: [29, 49], knF: [40, 55], ftF: [50, 58], knB: [23, 53], ftB: [22, 58], elF: [35, 45], hdF: [40, 50], elB: [26, 45], hdB: [22, 50], prop: 'tripodLow', face: 'shout', smear: [[34, 61], [48, 61], [62, 58]] }),
+      P({ head: [32, 24], sh: [30, 36], hip: [29, 46], knF: [36, 51], ftF: [39, 58], knB: [23, 52], ftB: [23, 58], elF: [35, 41], hdF: [38, 45], prop: 'tripodLow', face: 'normal' }),
+    ], fps: 10, loop: false,
+  },
+
+  // ───── 피격·방어·결과 ─────
+  hit: {
+    frames: [
+      P({ head: [28, 17], sh: [28, 31], hip: [30, 42], elF: [33, 33], hdF: [37, 30], elB: [23, 31], hdB: [19, 28], face: 'hurt', prop: 'none', ftF: [38, 58] }),
+      P({ head: [27, 18], sh: [27, 32], hip: [30, 42], elF: [32, 30], hdF: [36, 26], elB: [22, 29], hdB: [18, 25], face: 'hurt', prop: 'none', ftF: [39, 58] }),
+    ], fps: 10, loop: false,
+  },
+  knockback: {
+    frames: [
+      P({ head: [24, 19], sh: [27, 30], hip: [34, 38], knF: [41, 40], ftF: [47, 44], knB: [38, 44], ftB: [44, 49], elF: [30, 22], hdF: [33, 16], elB: [22, 27], hdB: [17, 23], face: 'hurt', prop: 'none' }),
+      P({ head: [26, 26], sh: [29, 34], hip: [36, 36], knF: [42, 32], ftF: [46, 26], knB: [40, 38], ftB: [46, 36], elF: [32, 26], hdF: [36, 22], elB: [24, 36], hdB: [19, 39], face: 'hurt', prop: 'none' }),
+    ], fps: 8, loop: true,
+  },
+  knockdown: { frames: [P({ face: 'hurt', prop: 'none', lie: true, elF: [39, 33], hdF: [44, 31] })], fps: 1, loop: false },
+  guard: { frames: [P({ head: [31, 17], sh: [30, 31], elF: [37, 29], hdF: [37, 22], elB: [35, 34], hdB: [38, 29], prop: 'cameraUp', face: 'angry', ftF: [39, 58], knF: [36, 50], ftB: [23, 58] })], fps: 1, loop: false },
   victory: {
     frames: [
-      P({ elF: [27, 20], hdF: [28, 12], elB: [18, 22], hdB: [17, 14], prop: 'cameraUp', face: 'happy' }),
-      up(P({ elF: [27, 20], hdF: [28, 12], elB: [18, 22], hdB: [17, 14], prop: 'cameraUp', face: 'happy' }), -2),
-    ], fps: 4, loop: true,
+      P({ elF: [37, 21], hdF: [38, 12], elB: [27, 22], hdB: [26, 13], prop: 'cameraUp', face: 'happy' }),
+      all(P({ elF: [37, 21], hdF: [38, 12], elB: [27, 22], hdB: [26, 13], prop: 'cameraUp', face: 'happy', knF: [36, 48], ftF: [35, 55], knB: [27, 49], ftB: [27, 56] }), 0, -4),
+      P({ elF: [37, 21], hdF: [38, 12], elB: [27, 22], hdB: [26, 13], prop: 'cameraUp', face: 'happy' }),
+      P({ elF: [40, 28], hdF: [44, 24], elB: [27, 22], hdB: [25, 14], prop: 'none', face: 'happy' }),
+    ], fps: 5, loop: true,
   },
-  defeat: { frames: [P({ hip: [22, 52], knF: [28, 56], ftF: [30, 61], knB: [18, 60], ftB: [12, 61], sh: [25, 39], head: [28, 32], elF: [29, 46], hdF: [28, 52], elB: [21, 46], hdB: [20, 52], face: 'sad', prop: 'none' })], fps: 1, loop: false },
+  defeat: {
+    frames: [
+      P({ head: [35, 30], sh: [33, 41], hip: [31, 52], knF: [38, 56], ftF: [40, 58], knB: [27, 60], ftB: [20, 58], elF: [37, 49], hdF: [36, 55], elB: [29, 49], hdB: [28, 55], face: 'sad', prop: 'none' }),
+      P({ head: [35, 31], sh: [33, 42], hip: [31, 52], knF: [38, 56], ftF: [40, 58], knB: [27, 60], ftB: [20, 58], elF: [37, 49], hdF: [36, 55], elB: [29, 49], hdB: [28, 55], face: 'sad', prop: 'none' }),
+    ], fps: 2, loop: true,
+  },
 }

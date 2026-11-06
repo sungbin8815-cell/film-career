@@ -5,9 +5,10 @@ import type { Fighter } from '../core/Fighter'
 import { METER_MAX } from '../core/Fighter'
 import { SimpleAI } from '../core/AI'
 import { emptyInput, FPS, type MatchEvent } from '../core/types'
-import { getCharacter } from '../config/characters'
+import { getCharacter, BTN_LABEL } from '../config/characters'
 import { animKey } from '../gfx/TextureFactory'
-import { FW, FH } from '../gfx/Painter'
+import { ANIMS } from '../gfx/poses'
+import { FW, FH, FOOT_Y } from '../gfx/Painter'
 import type { Controls } from '../ui/Controls'
 import { button, text, COLOR, FONT } from '../ui/widgets'
 import { settings } from '../ui/Settings'
@@ -36,6 +37,10 @@ export class FightScene extends Phaser.Scene {
   private p1Id = 'dp'
   private uiCam!: Phaser.Cameras.Scene2D.Camera
   private zoom = 1.7
+  private zoomKick = 0
+  private slow = 0                                    // 슬로모션 남은 프레임
+  private squash = [{ x: 1, y: 1 }, { x: 1, y: 1 }]  // 스쿼시·스트레치
+  private tick = 0
 
   constructor() { super('Fight') }
 
@@ -48,6 +53,7 @@ export class FightScene extends Phaser.Scene {
     this.texKeys = [c1.id, c2.id === c1.id ? `${c2.id}_alt` : c2.id]
     this.acc = 0; this.lagHp = [1, 1]; this.paused = false; this.resultShown = false
     this.projSprites = new Map()
+    this.slow = 0; this.zoomKick = 0; this.squash = [{ x: 1, y: 1 }, { x: 1, y: 1 }]
   }
 
   /** 월드(줌 카메라)에만 보이는 오브젝트 */
@@ -65,7 +71,7 @@ export class FightScene extends Phaser.Scene {
 
     this.match.fighters.forEach((f, i) => {
       this.shadows[i] = this.add.image(f.x, GROUND + 1, 'shadow').setDepth(1)
-      this.sprites[i] = this.add.sprite(f.x, GROUND, this.texKeys[i]).setOrigin(0.5, 62 / FH).setDepth(5 + i)
+      this.sprites[i] = this.add.sprite(f.x, GROUND, this.texKeys[i]).setOrigin(0.5, FOOT_Y / FH).setDepth(5 + i)
     })
     const worldObjs = this.children.list.filter((o) => !before.has(o))
     this.buildHud(W)
@@ -134,26 +140,108 @@ export class FightScene extends Phaser.Scene {
   private drawFighter(f: Fighter, i: number) {
     const spr = this.sprites[i]
     const key = this.texKeys[i]
-    spr.setPosition(Math.round(f.x), Math.round(GROUND - f.y))
+    // 히트스톱 중 맞은 쪽 덜덜 떨림
+    const jitter = this.match.hitstop > 0 && f.inHitstun ? (this.tick % 2 ? 1 : -1) : 0
+    spr.setPosition(Math.round(f.x) + jitter, Math.round(GROUND - f.y))
     spr.setFlipX(f.facing < 0)
+    const sq = this.squash[i]
+    sq.x += (1 - sq.x) * 0.22; sq.y += (1 - sq.y) * 0.22
+    spr.setScale(sq.x, sq.y)
     this.shadows[i].setPosition(Math.round(f.x), GROUND + 1).setScale(1 - Math.min(0.5, f.y / 120), 1)
     let anim = f.state as string
     if (f.state === 'attack' && f.move) {
-      const m = f.move, tex = this.textures.get(key)
-      const n = ['light', 'heavy'].includes(m.id) ? 3 : 2
-      if (m.id === 'super' && f.moveFrame >= m.startup) anim = 'super'
+      const m = f.move
+      const def = ANIMS[m.id] ?? ANIMS.light
+      const n = def.frames.length
+      const mf = f.moveFrame, st = m.startup, ac = m.active
+      const activeNow = mf >= st && mf < st + ac
+      if (m.afterimage && activeNow && this.tick % 3 === 0) this.ghost(spr, i)
+      if (def.loop && activeNow) anim = m.id
       else {
-        const idx = f.moveFrame < m.startup ? 0 : f.moveFrame < m.startup + m.active ? 1 : Math.min(n - 1, 2)
+        let idx: number
+        if (n <= 2) idx = mf < st ? 0 : n - 1
+        else if (n === 3) idx = mf < st ? 0 : mf < st + ac ? 1 : 2
+        else idx = mf < st / 2 ? 0 : mf < st ? 1 : mf < st + ac ? 2 : 3
         spr.anims.stop()
-        spr.setFrame(tex.has(`${m.id}_${idx}`) ? `${m.id}_${idx}` : `${m.id}_0`)
+        spr.setFrame(`${m.id}_${Math.min(idx, n - 1)}`)
         this.applyFlash(spr, i)
         return
       }
     }
     if (f.state === 'guard' && f.stun > 0) anim = 'guard'
+    if (f.state === 'run' && this.tick % 6 === 0) { const d = this.w(this.add.image(f.x - f.facing * 8, GROUND, 'dust').setDepth(4).setAlpha(0.7)); this.tweens.add({ targets: d, alpha: 0, x: d.x - f.facing * 8, duration: 280, onComplete: () => d.destroy() }) }
     const ak = animKey(key, anim)
     if (spr.anims.currentAnim?.key !== ak || !spr.anims.isPlaying && this.anims.get(ak)?.repeat === -1) spr.play(ak, true)
     this.applyFlash(spr, i)
+  }
+
+  /** 잔상 */
+  private ghost(spr: Phaser.GameObjects.Sprite, i: number) {
+    const g = this.w(this.add.image(spr.x, spr.y, spr.texture.key, spr.frame.name).setOrigin(spr.originX, spr.originY).setFlipX(spr.flipX).setScale(spr.scaleX, spr.scaleY)
+      .setTintFill(i === 0 ? 0x5ec8ff : 0xff5470).setAlpha(0.55).setDepth(4))
+    this.tweens.add({ targets: g, alpha: 0, duration: 230, onComplete: () => g.destroy() })
+  }
+
+  /** 타격 임팩트: 불꽃 + 충격파 링 + 파편 + 데미지 숫자 */
+  private impact(x: number, y: number, power: number, color: number, dmg?: number) {
+    const sy = GROUND - y
+    this.w(this.add.sprite(x, sy, 'spark')).setDepth(30).setScale(0.9 + power * 0.5).setAngle(Math.random() * 360).play('spark').once('animationcomplete', (_: unknown, __: unknown, s: Phaser.GameObjects.Sprite) => s.destroy())
+    const ring = this.w(this.add.circle(x, sy, 3).setStrokeStyle(2, color).setDepth(29))
+    this.tweens.add({ targets: ring, scale: 4 + power * 3, alpha: 0, duration: 220 + power * 60, ease: 'Cubic.out', onComplete: () => ring.destroy() })
+    const n = 5 + power * 4
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * (14 + power * 10)
+      const bit = this.w(this.add.rectangle(x, sy, 2, 2, k % 3 ? 0xffffff : color).setDepth(31))
+      this.tweens.add({ targets: bit, x: x + Math.cos(a) * r, y: sy + Math.sin(a) * r * 0.7 + 6, alpha: 0, duration: 260 + Math.random() * 200, ease: 'Quad.out', onComplete: () => bit.destroy() })
+    }
+    if (dmg != null) {
+      const t = this.w(this.add.text(x + (Math.random() - 0.5) * 10, sy - 10, String(dmg), { fontFamily: FONT, fontSize: '11px', color: power >= 2 ? '#ffd23f' : '#ffffff', stroke: '#0a0812', strokeThickness: 3, fontStyle: 'bold', resolution: 6 }).setOrigin(0.5).setDepth(34).setScale(power >= 2 ? 0.95 : 0.7))
+      this.tweens.add({ targets: t, y: t.y - 14, duration: 260, ease: 'Back.out' })
+      this.tweens.add({ targets: t, alpha: 0, delay: 420, duration: 220, onComplete: () => t.destroy() })
+    }
+  }
+
+  /** 마무리 연출: 슬로모션 + 카메라 줌 펀치 + 집중선 */
+  private finisherFx() {
+    this.slow = 26
+    this.zoomKick = 0.35
+    this.cameras.main.flash(90, 255, 255, 255)
+    const g = this.ui(this.add.graphics().setDepth(38))
+    g.lineStyle(2, 0xffffff, 0.75)
+    for (let k = 0; k < 28; k++) {
+      const a = (k / 28) * Math.PI * 2 + Math.random() * 0.1
+      const r1 = 120 + Math.random() * 40, r2 = 300
+      g.lineBetween(240 + Math.cos(a) * r1, 135 + Math.sin(a) * r1 * 0.6, 240 + Math.cos(a) * r2, 135 + Math.sin(a) * r2 * 0.6)
+    }
+    this.tweens.add({ targets: g, alpha: 0, duration: 380, onComplete: () => g.destroy() })
+  }
+
+  /** 커맨드 콤보 배너: "약 약 강 ▶ 트라이포드 어퍼!" */
+  private comboBanner(fighter: number, moveId: string, name: string) {
+    const ch = this.match.fighters[fighter].char
+    const seq = ch.combos.find((c) => c.move === moveId)?.seq.map((t) => BTN_LABEL[t]).join(' ') ?? ''
+    const y = 206   // 머리 위 말풍선과 겹치지 않게 아래쪽에
+    const band = this.ui(this.add.rectangle(fighter === 0 ? -240 : 720, y, 300, 24, fighter === 0 ? 0x2f6fe4 : 0xe0353f).setDepth(39).setAngle(-4))
+    const t = this.ui(this.add.text(fighter === 0 ? -240 : 720, y, `${seq} ▶ ${name}!`, { fontFamily: FONT, fontSize: '14px', color: '#fff8e7', stroke: '#0a0812', strokeThickness: 3, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(40).setAngle(-4))
+    const tx = fighter === 0 ? 170 : 310
+    this.tweens.add({ targets: [band, t], x: tx, duration: 160, ease: 'Back.out' })
+    this.tweens.add({ targets: [band, t], alpha: 0, x: tx + (fighter === 0 ? 40 : -40), delay: 900, duration: 220, onComplete: () => { band.destroy(); t.destroy() } })
+  }
+
+  /** 필살기 컷인: 레터박스 + 캐릭터 + 이름 */
+  private superCutIn(fighter: number) {
+    const f = this.match.fighters[fighter]
+    const key = this.texKeys[fighter]
+    const top = this.ui(this.add.rectangle(0, -30, 480, 30, 0x000000).setOrigin(0).setDepth(41))
+    const bot = this.ui(this.add.rectangle(0, 270, 480, 30, 0x000000).setOrigin(0).setDepth(41))
+    const dark = this.ui(this.add.rectangle(0, 0, 480, 270, 0x0a0812, 0.65).setOrigin(0).setDepth(36))
+    const band = this.ui(this.add.rectangle(240, 140, 480, 64, fighter === 0 ? 0x2f6fe4 : 0xe0353f).setDepth(37))
+    const who = this.ui(this.add.sprite(fighter === 0 ? -60 : 540, 172, key, 'super_0').setOrigin(0.5, 1).setScale(2.2).setFlipX(fighter !== 0).setDepth(38))
+    const t = this.ui(this.add.text(fighter === 0 ? 300 : 180, 140, `🎥 ${f.move?.name ?? '필살기'}!!`, { fontFamily: FONT, fontSize: '22px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 4, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(39).setScale(1.8))
+    this.tweens.add({ targets: top, y: 0, duration: 120 }); this.tweens.add({ targets: bot, y: 240, duration: 120 })
+    this.tweens.add({ targets: who, x: fighter === 0 ? 110 : 370, duration: 200, ease: 'Cubic.out' })
+    this.tweens.add({ targets: t, scale: 1, duration: 160, ease: 'Back.out' })
+    this.tweens.add({ targets: [dark, band, who, t, top, bot], alpha: 0, delay: 420, duration: 160, onComplete: () => [dark, band, who, t, top, bot].forEach((o) => o.destroy()) })
   }
 
   private applyFlash(spr: Phaser.GameObjects.Sprite, i: number) {
@@ -200,16 +288,20 @@ export class FightScene extends Phaser.Scene {
         case 'fight': this.bigText('ACTION!', '#ffd23f', 30, 500); sfx('slate'); break
         case 'hit': {
           const def = 1 - e.attacker
-          this.flash[def] = 3
-          this.w(this.add.sprite(e.x, GROUND - e.y, 'spark')).setDepth(30).setScale(e.heavy ? 1.6 : 1.1).play('spark').once('animationcomplete', (_: unknown, __: unknown, s: Phaser.GameObjects.Sprite) => s.destroy())
-          this.cameras.main.shake(e.heavy ? 160 : 70, e.heavy ? 0.012 : 0.005)
-          sfx(e.heavy ? 'hitHeavy' : 'hit')
+          this.flash[def] = e.finisher ? 6 : 3
+          const power = e.finisher ? 3 : e.heavy ? 2 : 1
+          this.impact(e.x, e.y, power, e.attacker === 0 ? 0x5ec8ff : 0xff8a3d, e.damage)
+          this.squash[def] = { x: 0.86, y: 1.12 }
+          this.cameras.main.shake(e.finisher ? 260 : e.heavy ? 150 : 70, e.finisher ? 0.02 : e.heavy ? 0.011 : 0.005)
+          sfx(e.heavy || e.finisher ? 'hitHeavy' : 'hit')
+          if (e.finisher) { this.finisherFx(); sfx('ko') }
           if (e.combo >= 2) {
             const c = this.hud.combo[e.attacker]
-            c.setText(`${e.combo} HIT!`).setAlpha(1).setScale(1.3)
+            const col = e.combo >= 8 ? '#ff5470' : e.combo >= 5 ? '#ff9f43' : '#ffd23f'
+            c.setText(`${e.combo} HIT!`).setColor(col).setAlpha(1).setScale(1.5 + Math.min(0.6, e.combo * 0.05))
             this.tweens.killTweensOf(c)
-            this.tweens.add({ targets: c, scale: 1, duration: 120 })
-            this.tweens.add({ targets: c, alpha: 0, delay: 900, duration: 300 })
+            this.tweens.add({ targets: c, scale: 1 + Math.min(0.4, e.combo * 0.04), duration: 140, ease: 'Back.out' })
+            this.tweens.add({ targets: c, alpha: 0, delay: 1000, duration: 300 })
           }
           break
         }
@@ -219,28 +311,32 @@ export class FightScene extends Phaser.Scene {
           break
         case 'move': {
           const f = this.match.fighters[e.fighter]
-          if (e.voice) this.bubble(f, e.voice)
+          if (e.combo) this.comboBanner(e.fighter, e.move, e.name)
+          else if (e.voice) this.bubble(f, e.voice)
+          if (e.combo && e.voice) this.bubble(f, e.voice)
           sfx(e.sfx === 'light' || e.sfx === 'heavy' ? 'swing' : e.sfx ?? 'swing')
           break
         }
-        case 'super': {
-          // 필살기 컷인: 화면 어둡게 + 이름
-          const f = this.match.fighters[e.fighter]
-          const dark = this.ui(this.add.rectangle(0, 0, 480, 270, 0x000000, 0.6).setOrigin(0).setDepth(9))
-          const band = this.ui(this.add.rectangle(240, 120, 480, 34, 0xffd23f).setDepth(36))
-          const t = this.ui(this.add.text(240, 120, `🎥 ${f.move?.name ?? '필살기'}!!`, { fontFamily: FONT, fontSize: '18px', color: '#0a0812', fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(37))
-          this.tweens.add({ targets: [band, t], alpha: 0, delay: 350, duration: 150 })
-          this.tweens.add({ targets: dark, alpha: 0, delay: 380, duration: 200, onComplete: () => { dark.destroy(); band.destroy(); t.destroy() } })
-          sfx('shutter')
-          break
-        }
+        case 'super': this.superCutIn(e.fighter); sfx('shutter'); sfx('super'); break
         case 'ko': this.bigText('K.O.!', '#ff5470', 36, 1100); sfx('ko'); this.cameras.main.flash(200, 255, 255, 255); break
         case 'timeup': this.bigText('TIME UP!', '#fff8e7', 26, 1000); break
-        case 'jump': sfx('jump'); break
+        case 'jump': sfx('jump'); this.squash[e.fighter] = { x: 0.8, y: 1.25 }; break
         case 'land': {
           const f = this.match.fighters[e.fighter]
+          this.squash[e.fighter] = { x: 1.25, y: 0.8 }
           const d = this.w(this.add.image(f.x, GROUND, 'dust').setDepth(4))
           this.tweens.add({ targets: d, alpha: 0, y: GROUND - 4, duration: 300, onComplete: () => d.destroy() })
+          sfx('land')
+          break
+        }
+        case 'knockdown': {
+          const f = this.match.fighters[e.fighter]
+          for (const dir of [-1, 1]) {
+            const d = this.w(this.add.image(f.x + dir * 6, GROUND, 'dust').setDepth(4).setScale(1.4))
+            this.tweens.add({ targets: d, alpha: 0, x: d.x + dir * 18, y: GROUND - 6, duration: 420, onComplete: () => d.destroy() })
+          }
+          this.cameras.main.shake(120, 0.008)
+          sfx('hitHeavy')
           break
         }
       }
@@ -253,9 +349,10 @@ export class FightScene extends Phaser.Scene {
     const dist = Math.abs(a.x - b.x)
     const target = Phaser.Math.Clamp(480 / (dist + 190), 1.15, 1.9)
     this.zoom += (target - this.zoom) * 0.08
+    this.zoomKick *= 0.88
     const cam = this.cameras.main
-    cam.setZoom(this.zoom)
-    const viewH = 270 / this.zoom
+    cam.setZoom(this.zoom + this.zoomKick)
+    const viewH = 270 / (this.zoom + this.zoomKick)
     // 지면이 화면 62% 지점 → 캐릭터 발이 아래쪽 버튼에 가리지 않음
     cam.centerOn((a.x + b.x) / 2, GROUND - viewH * 0.12)
   }
@@ -266,10 +363,14 @@ export class FightScene extends Phaser.Scene {
     if (this.paused) {
       const W = this.scale.width
       this.pauseLayer = this.ui(this.add.container(0, 0).setDepth(100))
-      this.pauseLayer.add(this.add.rectangle(0, 0, W, 270, 0x000000, 0.7).setOrigin(0))
-      this.pauseLayer.add(text(this, W / 2, 90, 'PAUSE', 18, COLOR.accent))
-      this.pauseLayer.add(button(this, W / 2, 130, 140, 24, '계속하기', () => this.togglePause()))
-      this.pauseLayer.add(button(this, W / 2, 162, 140, 24, '메뉴로', () => this.scene.start('Menu')))
+      this.pauseLayer.add(this.add.rectangle(0, 0, W, 270, 0x000000, 0.78).setOrigin(0))
+      this.pauseLayer.add(text(this, W / 2, 30, 'PAUSE · 기술표', 16, COLOR.accent))
+      const ch = this.match.fighters[0].char
+      const lines = ch.combos.map((c) => `${c.seq.map((t) => BTN_LABEL[t]).join(' ')}  ▶  ${ch.moves[c.move]?.name ?? c.move}${ch.moves[c.move]?.cost ? ` (SP ${ch.moves[c.move]!.cost})` : ''}`)
+      lines.push('특 ▶ 숄더 어택 (SP 25) · ↓+특 ▶ 조명 낙하 (SP 25) · 필살 ▶ 원테이크 (SP 100)')
+      this.pauseLayer.add(text(this, W / 2, 106, lines.join('\n'), 11, COLOR.ink).setAlign('center').setLineSpacing(3))
+      this.pauseLayer.add(button(this, W / 2 - 80, 214, 140, 24, '계속하기', () => this.togglePause(), { color: 0x6a2c91 }))
+      this.pauseLayer.add(button(this, W / 2 + 80, 214, 140, 24, '메뉴로', () => this.scene.start('Menu')))
     } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined }
   }
 
@@ -288,9 +389,11 @@ export class FightScene extends Phaser.Scene {
 
   update(_t: number, delta: number) {
     if (this.paused) return
-    this.acc += Math.min(delta, 100)
+    this.tick++
+    this.acc += Math.min(delta, 100) * (this.slow > 0 ? 0.35 : 1)
     while (this.acc >= STEP_MS) {
       this.acc -= STEP_MS
+      if (this.slow > 0) this.slow--
       const p1 = this.controls.state
       const [a, b] = this.match.fighters
       const p2 = this.match.phase === 'fight' ? this.ai.input(b, a, this.match.frame) : emptyInput()

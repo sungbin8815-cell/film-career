@@ -1,5 +1,5 @@
 // 한 명의 파이터: 상태 머신 + 물리. Phaser 없음.
-import type { CharacterData, FighterStateName, InputState, MoveData, MoveId, Rect } from './types'
+import type { Btn, CharacterData, FighterStateName, InputState, MoveData, MoveId, Rect } from './types'
 import { emptyInput, STAGE_W } from './types'
 
 export const METER_MAX = 100
@@ -52,7 +52,7 @@ export class Fighter {
     this.facing = this.idx === 0 ? 1 : -1
     this.hp = this.char.hp
     this.setState('idle')
-    this.move = null; this.stun = 0; this.invuln = 0; this.combo = 0; this.lightChain = 0
+    this.move = null; this.stun = 0; this.invuln = 0; this.combo = 0; this.lightChain = 0; this.chainBtns = []; this.juggles = 0
   }
 
   setState(s: FighterStateName) {
@@ -97,34 +97,80 @@ export class Fighter {
   }
   private consume(k: keyof InputState) { delete this.pressedAt[k] }
 
-  private tryStartMove(inp: InputState, opts: { cancel?: boolean } = {}): boolean {
-    const moves = this.char.moves
-    const allowed = (id: MoveId) => {
-      const m = moves[id]
-      if (!m) return false
-      if (m.cost && this.meter < m.cost) return false
-      if (opts.cancel && this.move && !(this.move.cancelInto ?? []).includes(id)) return false
-      if (opts.cancel && id === 'light' && this.lightChain >= 2) return false
-      return true
+  /** 이번 프레임에 눌린 공격 버튼 → 버튼 토큰 (L H S X, ↓와 같이면 dL dH dS) */
+  private pressedBtn(inp: InputState): Btn | null {
+    const d = inp.down ? 'd' : ''
+    if (this.pressed('super', inp)) { this.consume('super'); return 'X' }
+    if (this.pressed('special', inp)) { this.consume('special'); return (d + 'S') as Btn }
+    if (this.pressed('heavy', inp)) { this.consume('heavy'); return (d + 'H') as Btn }
+    if (this.pressed('light', inp)) { this.consume('light'); return (d + 'L') as Btn }
+    return null
+  }
+
+  /** 버튼 → 기본 기술 (↓+특 = special2, ↓만 다르게 정의된 기술이 있으면 그것) */
+  private baseMove(b: Btn): MoveId {
+    const map: Record<Btn, MoveId> = { L: 'light', H: 'heavy', S: 'special1', X: 'super', dL: 'light', dH: 'heavy', dS: 'special2' }
+    return map[b]
+  }
+
+  /** 커맨드 콤보 찾기: 지금까지 이어 친 버튼 + 이번 버튼 */
+  private findCombo(seq: Btn[]): MoveId | null {
+    const combos = [...this.char.combos].sort((a, b) => b.seq.length - a.seq.length)
+    for (const c of combos) {
+      if (c.seq.length !== seq.length) continue
+      if (c.seq.every((t, i) => t === seq[i])) return c.move
     }
+    return null
+  }
+
+  private isComboPrefix(seq: Btn[]) {
+    return this.char.combos.some((c) => c.seq.length > seq.length && seq.every((t, i) => c.seq[i] === t))
+  }
+
+  private affordable(id: MoveId | null): id is MoveId {
+    const m = id ? this.char.moves[id] : null
+    return !!m && (!m.cost || this.meter >= m.cost)
+  }
+
+  /** 기술 발동 시도. cancel = 이전 기술 경직을 끊고 잇는 중 */
+  private tryStartMove(inp: InputState, opts: { cancel?: boolean } = {}): boolean {
+    const saved = { ...this.pressedAt }
+    const b = this.pressedBtn(inp)
+    if (!b) return false
+    const single = (): MoveId => (b.startsWith('d') ? this.findCombo([b]) : null) ?? this.baseMove(b)
     let id: MoveId | null = null
-    if (this.pressed('super', inp) && allowed('super')) { id = 'super'; this.consume('super') }
-    else if (this.pressed('special', inp)) {
-      const want: MoveId = inp.down ? 'special2' : 'special1'
-      if (allowed(want)) { id = want; this.consume('special') }
-    } else if (this.pressed('heavy', inp) && allowed('heavy')) { id = 'heavy'; this.consume('heavy') }
-    else if (this.pressed('light', inp) && allowed('light')) { id = 'light'; this.consume('light') }
-    if (!id) return false
-    this.startMove(id, opts.cancel)
+    if (opts.cancel) {
+      // 1) 커맨드 콤보: 순서만 맞으면 앞 기술이 빗나가도 이어짐
+      const c = this.findCombo([...this.chainBtns, b])
+      if (this.affordable(c)) id = c
+      else {
+        // 2) 일반 캔슬: 맞혔을 때만 cancelInto 목록으로
+        const base = single()
+        const okCancel = this.hitConfirmed && (this.move?.cancelInto ?? []).includes(base) && !(base === 'light' && this.lightChain >= 2)
+        // 콤보 앞부분(예: 약 약 강의 '약 약')이면 빗나가도 이어 침
+        const prefix = this.isComboPrefix([...this.chainBtns, b])
+        if ((okCancel || prefix) && this.affordable(base)) id = base
+      }
+      if (!id) { this.pressedAt = saved; return false } // 못 이으면 선입력으로 남겨 둠
+    } else {
+      id = single()
+      if (!this.affordable(id)) id = this.affordable(this.baseMove(b)) ? this.baseMove(b) : null
+      if (!id) return false
+    }
+    this.startMove(id, b, !!opts.cancel)
     return true
   }
 
   pendingEvents: { type: 'move'; move: MoveId }[] = []
+  /** 지금 이어 치고 있는 버튼 기록 (커맨드 콤보 판정용) */
+  chainBtns: Btn[] = []
+  juggles = 0
 
-  private startMove(id: MoveId, isCancel = false) {
+  private startMove(id: MoveId, b: Btn, isCancel = false) {
     const m = this.char.moves[id]!
     if (m.cost) this.meter -= m.cost
     this.lightChain = id === 'light' ? (isCancel && this.move?.id === 'light' ? this.lightChain + 1 : 1) : 0
+    this.chainBtns = isCancel ? [...this.chainBtns, b] : [b]
     this.move = m
     this.moveFrame = 0
     this.hitsThisMove = 0
@@ -136,7 +182,7 @@ export class Fighter {
 
   /** 히트스톱 중에도 버튼 입력은 기억해 둠 (선입력) */
   observe(inp: InputState) {
-    this.frame++
+    // 히트스톱 동안은 시간이 멈춘 것으로 보고 frame을 올리지 않음 → 선입력이 만료되지 않음
     for (const k of Object.keys(inp) as (keyof InputState)[]) if (inp[k] && !this.prev[k]) this.pressedAt[k] = this.frame
     this.prev = { ...inp }
   }
@@ -166,7 +212,7 @@ export class Fighter {
         if (--this.stun <= 0) this.setState(this.grounded ? 'idle' : 'fall')
         break
       case 'knockback':
-        if (this.grounded && this.stateFrame > 3) { this.setState('knockdown'); this.stun = 34; this.vx = 0; this.invuln = 40 }
+        if (this.grounded && this.stateFrame > 3) { this.setState('knockdown'); this.stun = 34; this.vx = 0; this.invuln = 40; this.juggles = 0; this.pendingKnockdown = true }
         break
       case 'knockdown':
         this.vx *= 0.7
@@ -184,8 +230,8 @@ export class Fighter {
         this.moveFrame++
         if (m.dash && this.moveFrame >= m.startup && this.moveFrame < m.startup + m.active) this.vx = this.facing * m.dash
         else if (this.grounded) this.vx *= 0.7
-        // 맞혔거나 막혔으면 경직을 끊고 다음 기술로 (콤보)
-        if (this.hitConfirmed && this.moveFrame >= m.startup && this.tryStartMove(inp, { cancel: true })) break
+        // 콤보 잇기: 판정이 나온 뒤부터 (맞히면 일반 캔슬, 커맨드 콤보는 빗나가도 OK)
+        if (this.moveFrame >= m.startup && this.tryStartMove(inp, { cancel: true })) break
         if (this.moveFrame >= m.startup + m.active + m.recovery) { this.move = null; this.setState(this.grounded ? 'idle' : 'fall') }
         break
       }
@@ -220,6 +266,7 @@ export class Fighter {
   }
 
   pendingJump = false
+  pendingKnockdown = false
   pendingLand = false
 
   /** 물리 이동 */

@@ -62,7 +62,7 @@ export class Match {
     for (const f of this.fighters) {
       for (const e of f.pendingEvents) {
         const m = f.char.moves[e.move]!
-        this.events.push({ type: 'move', fighter: f.idx, move: e.move, voice: m.voice, sfx: m.sfx })
+        this.events.push({ type: 'move', fighter: f.idx, move: e.move, name: m.name, combo: !!m.combo, voice: m.voice, sfx: m.sfx, afterimage: m.afterimage })
         if (e.move === 'super') { this.events.push({ type: 'super', fighter: f.idx }); this.hitstop = 24 }
         if (m.projectile) this.spawnProjectile(f, m.projectile)
       }
@@ -72,6 +72,7 @@ export class Match {
     for (const f of this.fighters) {
       if (f.pendingJump) { this.events.push({ type: 'jump', fighter: f.idx }); f.pendingJump = false }
       if (f.pendingLand) { this.events.push({ type: 'land', fighter: f.idx }); f.pendingLand = false }
+      if (f.pendingKnockdown) { this.events.push({ type: 'knockdown', fighter: f.idx }); f.pendingKnockdown = false }
     }
     this.pushApart(a, b)
 
@@ -116,6 +117,7 @@ export class Match {
   private checkHit(att: Fighter, def: Fighter) {
     const hb = att.hitbox()
     if (!hb || !att.canHitNow() || def.invuln > 0 || def.state === 'defeat') return
+    if (def.state === 'knockback' && (def.juggles >= 3 || !att.move?.juggle && def.juggles >= 1)) return
     if (!overlap(hb, def.hurtbox())) {
       return
     }
@@ -124,7 +126,7 @@ export class Match {
   }
 
   /** 맞음 또는 막음 처리 (기술·투사체 공용) */
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & { id?: string }, fromX: number) {
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit'>> & { id?: string }, fromX: number) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
@@ -147,9 +149,13 @@ export class Match {
     att.meter = Math.min(METER_MAX, att.meter + d.meterGain)
     def.meter = Math.min(METER_MAX, def.meter + Math.round(dmg / 18))
     def.move = null
-    if (d.kbY || !def.grounded || def.hp <= 0) {
+    const lastOfMulti = !!d.multiHit && att.hitsThisMove >= d.multiHit.max
+    const kbY = d.kbY ?? (lastOfMulti ? d.lastHitKbY : undefined)
+    const launch = !!kbY || !def.grounded || def.hp <= 0
+    if (!def.grounded) def.juggles++
+    if (launch) {
       def.setState('knockback')
-      def.vy = d.kbY ?? 3
+      def.vy = kbY ?? 3
       def.y = Math.max(def.y, 0.01)
       def.vx = dir * Math.max(1.5, d.kbX)
     } else {
@@ -157,9 +163,10 @@ export class Match {
       def.stun = d.hitstun
       def.vx = dir * d.kbX
     }
-    const heavy = d.damage >= 80 || !!d.kbY
-    this.hitstop = heavy ? 9 : 5
-    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy, moveName: d.name })
+    const heavy = d.damage >= 80 || !!kbY
+    const finisher = !!d.finisher && (!d.multiHit || lastOfMulti)
+    this.hitstop = finisher ? 14 : heavy ? 9 : 5
+    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy, finisher, launch, moveName: d.name })
     if (def.hp <= 0) this.ko(att.idx)
   }
 

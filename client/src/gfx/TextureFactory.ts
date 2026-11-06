@@ -5,10 +5,10 @@ import { paint, paintLightStandFalling, FW, FH, type Costume } from './Painter'
 import { ANIMS } from './poses'
 
 export const COSTUMES: Record<string, Costume> = {
-  // 촬영감독: 파란 캡, 남색 상의 + 주황 촬영팀 조끼
-  dp: { skin: '#f3c196', hair: '#3b2414', cap: '#2563eb', top: '#1e3a8a', topDark: '#172554', vest: '#f59e0b', pants: '#374151', shoes: '#e5e7eb', accent: '#fbbf24' },
-  // 같은 캐릭터 미러전용 2P 색
-  dp_alt: { skin: '#e8b48a', hair: '#111827', cap: '#dc2626', top: '#7f1d1d', topDark: '#450a0a', vest: '#9ca3af', pants: '#1f2937', shoes: '#fca5a5', accent: '#f87171' },
+  // 촬영감독: 파란 캡 + 남색 후드티(빨간 끈) + 흰 운동화
+  dp: { skin: '#f6c9a0', hair: '#2b1d16', cap: '#2f6fe4', capLogo: '#ffd23f', hoodie: '#27304a', strings: '#e23b4e', pants: '#3a3f4f', shoes: '#f4f1ea', shoeStripe: '#2f6fe4', eye: '#1b1325', blush: '#f2918e' },
+  // 같은 캐릭터 미러전용 2P 색: 빨간 캡 + 버건디 후드
+  dp_alt: { skin: '#eab88d', hair: '#151018', cap: '#e0353f', capLogo: '#ffffff', hoodie: '#5a1f2e', strings: '#ffd23f', pants: '#25222e', shoes: '#26232e', shoeStripe: '#e0353f', eye: '#1b1325', blush: '#ee8b8b' },
 }
 
 export function animKey(tex: string, anim: string) { return `${tex}_${anim}` }

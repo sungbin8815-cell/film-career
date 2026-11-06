@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>ROLLING! 스프라이트 미리보기</title>
+<style>body{background:#3b3550;color:#fff;font:12px monospace;margin:8px}.row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.c{background:#5b5675;padding:3px;text-align:center}canvas{image-rendering:pixelated;width:192px;height:192px;display:block}</style></head>
+<body><div id="out"></div>
+<script type="module">
+// 개발용: npm run dev → http://localhost:5173/preview.html
+import { paint } from './src/gfx/Painter.ts'
+import { ANIMS } from './src/gfx/poses.ts'
+import { COSTUMES } from './src/gfx/TextureFactory.ts'
+const out = document.getElementById('out')
+for (const key of ['dp', 'dp_alt']) for (const [name, a] of Object.entries(ANIMS)) {
+  const row = document.createElement('div'); row.className = 'row'
+  a.frames.forEach((p, i) => { const d = document.createElement('div'); d.className = 'c'; const c = paint(COSTUMES[key], p); const big = document.createElement('canvas'); big.width = 64; big.height = 64; big.getContext('2d').drawImage(c, 0, 0); d.append(big, `${key} ${name} ${i}`); row.append(d) })
+  out.append(row)
+  if (key === 'dp_alt') break
+}
+</script></body></html>

@@ -140,3 +140,49 @@ describe('전투 로직', () => {
     }
   })
 })
+
+describe('커맨드 콤보', () => {
+  // 버튼을 순서대로 누르고 각 기술이 무엇으로 나갔는지 기록
+  function run(seq: (Partial<InputState> | null)[], gap = 9, close = true) {
+    const m = new Match(DP, DP); toFight(m); if (close) closeIn(m, 26)
+    const moves: string[] = []
+    const frames: (Partial<InputState> | null)[] = []
+    for (const k of seq) { frames.push(k); for (let i = 1; i < gap; i++) frames.push(null) }
+    for (let i = 0; i < 40; i++) frames.push(null)
+    for (const f of frames) {
+      const ev = m.step([f ? { ...emptyInput(), ...f } : idle(), idle()])
+      for (const e of ev) if (e.type === 'move' && e.fighter === 0) moves.push(e.move)
+    }
+    return { m, moves }
+  }
+  it('약 약 강 → 트라이포드 어퍼 (상대가 높이 뜬다)', () => {
+    const { m, moves } = run([{ light: true }, { light: true }, { heavy: true }])
+    expect(moves).toEqual(['light', 'light', 'upper'])
+    expect(m.fighters[1].hp).toBeLessThan(DP.hp - 100)
+  })
+  it('빗나가도 순서만 맞으면 콤보 기술이 나간다', () => {
+    const { moves } = run([{ light: true }, { light: true }, { heavy: true }], 9, false)
+    expect(moves).toEqual(['light', 'light', 'upper'])
+  })
+  it('강 강 → 회전베기, 약 강 강 → 줌인 펀치', () => {
+    expect(run([{ heavy: true }, { heavy: true }], 14).moves).toEqual(['heavy', 'spin'])
+    expect(run([{ light: true }, { heavy: true }, { heavy: true }], 12).moves).toEqual(['light', 'heavy', 'zoompunch'])
+  })
+  it('히트스톱 중에 누른 버튼도 놓치지 않는다 (사람 타이밍 10~16프레임)', () => {
+    for (let g = 10; g <= 16; g++) expect(run([{ light: true }, { heavy: true }, { heavy: true }], g).moves, `gap ${g}`).toEqual(['light', 'heavy', 'zoompunch'])
+  })
+  it('약 약 강 어퍼는 약 두 대로 밀린 상대에게도 닿아서 띄운다', () => {
+    for (let g = 8; g <= 12; g++) {
+      const { m } = run([{ light: true }, { light: true }, { heavy: true }], g)
+      expect(m.fighters[1].hp, `gap ${g}`).toBeLessThan(DP.hp - 110)
+    }
+  })
+  it('↓+강 → 로우앵글 스윕', () => {
+    expect(run([{ heavy: true, down: true }]).moves).toEqual(['sweep'])
+  })
+  it('게이지가 없으면 약 강 특(롱테이크 러시) 대신 아무것도 안 나감', () => {
+    const { moves } = run([{ light: true }, { heavy: true }, { special: true }], 12)
+    expect(moves.slice(0, 2)).toEqual(['light', 'heavy'])
+    expect(moves).not.toContain('rush')
+  })
+})

@@ -2,6 +2,7 @@
 import Phaser from 'phaser'
 import { CHARACTERS } from '../config/characters'
 import { animKey } from '../gfx/TextureFactory'
+import { FH, FOOT_Y } from '../gfx/Painter'
 import { button, text, COLOR } from '../ui/widgets'
 import { sfx } from '../audio/Sfx'
 
@@ -23,10 +24,10 @@ export class SelectScene extends Phaser.Scene {
       const card = this.add.rectangle(x, y + 8, 138, 168, COLOR.panel).setStrokeStyle(2, COLOR.line)
       cards.push(card)
       if (c.implemented) {
-        this.add.sprite(x, y + 24, 'dp').setOrigin(0.5, 62 / 64).setScale(1.7).play(animKey('dp', 'idle'))
+        this.add.sprite(x, y + 24, 'dp').setOrigin(0.5, FOOT_Y / FH).setScale(1.7).play(animKey('dp', 'idle'))
       } else {
         // 아직 없는 캐릭터: 실루엣
-        this.add.sprite(x, y + 24, 'dp', 'idle_0').setOrigin(0.5, 62 / 64).setScale(1.7).setTintFill(0x0a0812)
+        this.add.sprite(x, y + 24, 'dp', 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(1.7).setTintFill(0x0a0812)
         text(this, x, y - 30, '🔒 PHASE 2', 11, COLOR.dim)
       }
       text(this, x, y + 32, `${c.name}`, 12, c.color)
