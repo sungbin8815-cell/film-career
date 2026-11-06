@@ -12,7 +12,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard'
 const PARAM: Record<Difficulty, { think: number; react: number; guard: number; combo: number; special: number; aggro: number; afterHitGuard: number; cmd: number }> = {
   //        생각 간격  반응(프레임)  가드 확률  이어치기  특성·직업기  공격성  맞은 뒤 가드  커맨드 사용
   easy:   { think: 32, react: 14, guard: 0.25, combo: 0.2,  special: 0.25, aggro: 0.4,  afterHitGuard: 0.15, cmd: 0.25 },
-  normal: { think: 18, react: 9,  guard: 0.55, combo: 0.55, special: 0.5,  aggro: 0.6,  afterHitGuard: 0.45, cmd: 0.55 },
+  normal: { think: 24, react: 11, guard: 0.4,  combo: 0.45, special: 0.45, aggro: 0.5,  afterHitGuard: 0.35, cmd: 0.5 },
   hard:   { think: 9,  react: 5,  guard: 0.8,  combo: 0.9,  special: 0.75, aggro: 0.75, afterHitGuard: 0.75, cmd: 0.85 },
 }
 
@@ -186,6 +186,12 @@ export class SimpleAI {
       // 태그 모드
       if (me.team?.canSwap && me.hp / me.maxHp < 0.35 && me.team.partnerHp > 0.5 && r() < 0.3 + this.p.combo * 0.3) { inp.swap = true; return inp }
       if (me.team?.canAssist && dist < 260 && r() < 0.08 + this.p.special * 0.15) inp.assist = true
+      // 원거리 캐릭터(망원 촬영·조명 등)는 붙으면 먼저 거리를 벌림
+      if (pref >= 200 && dist < pref - 110 && dist > 40 && r() < 0.35 + this.p.combo * 0.3) {
+        this.script = r() < 0.5 ? [{ inp: { back: true } }, { inp: {} }, { inp: { back: true } }] : []
+        this.moveDir = 'back'; this.moveT = 18
+        return inp
+      }
       const pick = this.pickOption(me, opp, dist, pref)
       if (pick && r() < this.p.aggro + 0.15) this.script = [...pick.frames]
       else {
@@ -250,6 +256,8 @@ export class SimpleAI {
         if (m.ult) s *= 3
         if (m.id.startsWith('C') || m.id.startsWith('D')) s *= 0.5 + this.p.special
       }
+      // 대공: 상대가 머리 위에서 덮쳐 오면 위쪽 기술
+      if (opp.y > 30 && dist < 110) s *= o.id.endsWith('_u') || (m.lift ?? 0) > 0 || m.juggle ? 3 : 0.6
       s *= this.habit(me, opp, m, dist, pref)
       s *= 0.5 + r()
       if (s > bestS) { bestS = s; best = o }

@@ -62,7 +62,7 @@ export const DP: CharacterData = {
   id: 'dp', name: '촬영감독', nameEn: 'DP', color: '#3b82f6', dept: '촬영부', titles: TITLES('촬영감독'), trait: 'lens',
   desc: '렌즈를 갈아 끼우면 다른 사람이 된다. 광각은 코앞 러시, 망원은 화면 끝 저격.',
   style: '모드 전환형 · 근거리↔원거리', difficulty: 2, showcase: ['C_n~tele', 'C_n~wide', 'B_n'],
-  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.28, assist: 'C_f',
+  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.41, assist: 'C_f',
   hp: 1040, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airSpeed: 2.2, gravity: 0.34, airDashes: 1,
   hurt: { w: 22, h: 50, crouchH: 32 },
   commands: dpCmds,
@@ -137,7 +137,7 @@ export const DIRECTOR: CharacterData = {
   ...DP, id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'), trait: 'mark',
   desc: '직접 싸우지 않는다. 콘티와 엑스트라로 판을 짜고, "액션!" 한마디로 전부 터뜨린다.',
   style: '설치·소환형 사령관', difficulty: 3, showcase: ['C_n', 'D_n', 'B_n'],
-  stats: { power: 2, speed: 3, reach: 4 }, atk: 1.54, assist: 'C_n',
+  stats: { power: 2, speed: 3, reach: 4 }, atk: 1.5, assist: 'C_n',
   hp: 960, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airDashes: 1,
   commands: directorCmds,
   moves: build({
@@ -194,7 +194,7 @@ export const SOUND: CharacterData = {
   ...DP, id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'), trait: 'rec',
   desc: '붐마이크가 여의봉처럼 화면 절반까지 늘어난다. 맞을수록 사운드가 차고, 터뜨리면 화면이 운다.',
   style: '초장거리 탱커', difficulty: 2, showcase: ['C_n', 'boom_skyscraper', 'D_n'],
-  stats: { power: 4, speed: 2, reach: 5 }, atk: 0.78, assist: 'bass_wave',
+  stats: { power: 4, speed: 2, reach: 5 }, atk: 0.72, assist: 'bass_wave',
   hp: 1120, walkSpeed: 1.5, runSpeed: 3.1, jumpV: 6.2, airDashes: 0,
   commands: soundCmds,
   moves: build({
@@ -252,7 +252,7 @@ export const GAFFER: CharacterData = {
   ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
   desc: '빛줄기로 노출을 쌓고, 조명을 꺼 순간이동한다. 노출이 차면 상대는 눈부셔 쓰러진다.',
   style: '빛 마법사 · 스턴 콤보', difficulty: 2, showcase: ['C_n', 'D_n', 'keylight_cannon'],
-  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.79, assist: 'C_n',
+  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.78, assist: 'C_n',
   hp: 1000, walkSpeed: 1.7, runSpeed: 3.4, jumpV: 6.4, airDashes: 1,
   commands: gafferCmds,
   moves: build({
@@ -309,7 +309,7 @@ export const ART: CharacterData = {
   ...DP, id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'), trait: 'wall',
   desc: '무대를 직접 짓는다. 공중에도 발판을 올리고, 벽으로 막고, 다 지으면 부숴서 날린다.',
   style: '건축·지형형 운영', difficulty: 3, showcase: ['C_u', 'C_f', 'D_n'],
-  stats: { power: 4, speed: 3, reach: 3 }, atk: 2.2, assist: 'C_d',
+  stats: { power: 4, speed: 3, reach: 3 }, atk: 2.35, assist: 'C_d',
   hp: 1040, airDashes: 1,
   commands: artCmds,
   moves: build({
@@ -366,7 +366,7 @@ export const MAKEUP: CharacterData = {
   ...DP, id: 'makeup', name: '분장실장', nameEn: 'MAKEUP', color: '#ec4899', dept: '분장팀', titles: TITLES('분장실장'), trait: 'makeup',
   desc: '분장막으로 버티며 상처·노인 분장을 건다. 자기 얼굴에 특수분장하면 크리처로 변신.',
   style: '상태이상·변신형', difficulty: 2, showcase: ['C_n', 'D_n', 'B_n~creature'],
-  stats: { power: 3, speed: 5, reach: 3 }, atk: 1.63, assist: 'C_f',
+  stats: { power: 3, speed: 5, reach: 3 }, atk: 1.32, assist: 'C_f',
   hp: 930, walkSpeed: 2.1, runSpeed: 4.2, jumpV: 6.9, airSpeed: 2.4, airDashes: 2,
   commands: makeupCmds,
   moves: build({
@@ -428,7 +428,7 @@ export const ACTOR: CharacterData = {
   ...DP, id: 'actor', name: '배우', nameEn: 'ACTOR', color: '#14b8a6', dept: '연기팀', titles: ['단역', '조연', '주연', '톱스타', '명배우'], trait: 'copy',
   desc: '상대 기술과 커맨드를 두 번 보면 따라 한다. 배역을 바꾸면 기본기가 통째로 바뀐다.',
   style: '카피·배역 전환형', difficulty: 3, showcase: ['B_n', 'B_n~sageuk', 'D_n'],
-  stats: { power: 3, speed: 4, reach: 3 }, atk: 2.02, assist: 'B_f',
+  stats: { power: 3, speed: 4, reach: 3 }, atk: 2.13, assist: 'B_f',
   hp: 990, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.8, airDashes: 1,
   commands: actorCmds,
   moves: build({

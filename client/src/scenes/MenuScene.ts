@@ -4,6 +4,7 @@ import { button, logo, text, COLOR } from '../ui/widgets'
 import { animKey } from '../gfx/TextureFactory'
 import { FH, FOOT_Y } from '../gfx/Painter'
 import { unlockAudio, sfx } from '../audio/Sfx'
+import { settings, saveSettings } from '../ui/Settings'
 
 export class MenuScene extends Phaser.Scene {
   constructor() { super('Menu') }
@@ -33,6 +34,16 @@ export class MenuScene extends Phaser.Scene {
       if (locked) b.setEnabled(false)
     })
     text(this, W / 2, 260, 'v0.5 · 캐릭터 7명 · 1대1 / 태그 2대2 · 스테이지 · 훈련장', 11, COLOR.dim)
+    // 처음 실행: 튜토리얼 권하기
+    if (!settings.tutorialDone) {
+      const L = this.add.container(0, 0).setDepth(50)
+      L.add(this.add.rectangle(0, 0, W, 270, 0x000000, 0.7).setOrigin(0))
+      L.add(this.add.rectangle(W / 2, 135, 300, 120, COLOR.panel).setStrokeStyle(2, 0xffd23f))
+      L.add(text(this, W / 2, 98, '처음이세요?', 16, COLOR.accent))
+      L.add(text(this, W / 2, 124, '1분 튜토리얼로 이동·공격·방어·특성·커맨드·궁극기를\n직접 해 보며 배워요', 10, COLOR.ink).setAlign('center'))
+      L.add(button(this, W / 2 - 70, 168, 120, 22, '튜토리얼 시작', () => { unlockAudio(); this.scene.start('Fight', { p1: 'dp', p2: 'director', tutorial: true }) }, { color: 0x6a2c91 }))
+      L.add(button(this, W / 2 + 70, 168, 120, 22, '건너뛰기', () => { settings.tutorialDone = true; saveSettings(settings); L.destroy() }))
+    }
     this.input.keyboard?.once('keydown-ENTER', () => { sfx('confirm'); this.scene.start('Select', { mode: 'vsai' }) })
   }
 }

@@ -1,7 +1,7 @@
 // 난이도 점검: 단순한 "다가가서 연타" 봇이 난이도별 AI를 상대로 얼마나 이기는지
 import { describe, expect, it } from 'vitest'
 import { Match } from '../src/core/Match'
-import { DP } from '../src/config/characters'
+import { DP, getCharacter } from '../src/config/characters'
 import { SimpleAI, type Difficulty } from '../src/core/AI'
 import { emptyInput } from '../src/core/types'
 import type { Fighter } from '../src/core/Fighter'
@@ -59,5 +59,33 @@ describe('AI 커맨드 콤보', () => {
     }
     console.log('AI가 쓴 콤보:', [...used].join(', '))
     expect(used.size).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('캐릭터별 AI 성향', () => {
+  const avgDist = (id: string, setup?: (m: Match) => void) => {
+    const m = new Match(getCharacter(id), DP)
+    setup?.(m)
+    const ai = new SimpleAI('hard')
+    let sum = 0, n = 0
+    const setups: string[] = []
+    for (let i = 0; i < 60 * 30 && m.phase !== 'matchOver'; i++) {
+      const [a, b] = m.fighters
+      const dx = Math.abs(a.x - b.x)
+      m.step([ai.input(a, b, i), masher(b, a, i)])
+      if (m.phase === 'fight') { sum += dx; n++ }
+      for (const e of m.events) if (e.type === 'move' && e.fighter === 0 && a.char.moves[e.move]?.effect) setups.push(e.move)
+    }
+    return { dist: sum / Math.max(1, n), setups }
+  }
+  it('망원 촬영·조명은 거리를 두고, 분장(근접)은 붙어서 싸운다', () => {
+    const gaffer = avgDist('gaffer').dist, makeup = avgDist('makeup').dist
+    console.log(`평균 거리 — 조명 ${Math.round(gaffer)} · 분장 ${Math.round(makeup)}`)
+    expect(gaffer).toBeGreaterThan(makeup)
+  })
+  it('연출감독 AI는 콘티·엑스트라를 깔고, 미술감독 AI는 구조물을 짓는다', () => {
+    const d = avgDist('director').setups, a = avgDist('art').setups
+    expect(d.some((x) => /^C_|extra|trap/.test(x))).toBe(true)
+    expect(a.length).toBeGreaterThan(0)
   })
 })

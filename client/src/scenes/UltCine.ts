@@ -24,7 +24,7 @@ export class UltCinema {
   private bits: { x: number; y: number; vy: number; w: number; h: number; c: number; landed: boolean }[] = []
 
   constructor(private scene: Phaser.Scene, ui: <T extends Phaser.GameObjects.GameObject>(o: T) => T, char: string,
-    attKey: string, attFrame: string, defKey: string, defFrame: string, name: string, side: number, private dur: number, private lowFx = false) {
+    attKey: string, attFrame: string, defKey: string, defFrame: string, name: string, side: number, private dur: number, private lowFx = false, private lowFlash = false) {
     this.actor = char.startsWith('actor:')
     this.base = this.actor ? char.split(':')[1] : char
     this.layer = ui(scene.add.container(0, 0).setDepth(90))
@@ -45,7 +45,7 @@ export class UltCinema {
 
   /** 박자마다: 번쩍 + 흔들림 */
   hit(n: number) {
-    this.flashA = 0.9
+    this.flashA = this.lowFlash ? 0.25 : 0.9
     this.shake = 6 + n
     this.def.setTintFill(0xffffff)
     this.scene.time.delayedCall(50, () => this.def.active && this.def.clearTint())
@@ -125,7 +125,7 @@ export class UltCinema {
           g.fillStyle(c, 0.28)
           for (let x = 0; x < W; x += 6) { const y = 60 + k * 26 + Math.sin(x * 0.03 + t * 0.08 + k) * 18; g.fillRect(x, y, 6, 22 + Math.sin(x * 0.05 + k) * 8) }
         })
-        g.fillStyle(0xffffff, Math.min(0.9, p * 1.1)).fillRect(0, 0, W, H)
+        g.fillStyle(0xffffff, Math.min(this.lowFlash ? 0.45 : 0.9, p * 1.1)).fillRect(0, 0, W, H)
         for (let k = 0; k < 4; k++) f.fillStyle(0xfef9c3, 0.5 - k * 0.1).fillCircle(W / 2 + (k - 1.5) * 40 * (1 - p), 80 + k * 10, 6 + k * 4)
         this.sub.setText('18K — 풀 파워')
         break

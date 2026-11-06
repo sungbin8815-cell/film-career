@@ -10,6 +10,8 @@ import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
 import { arenaFor } from '../config/arenas'
 import { UltCinema } from './UltCine'
 import { Training } from './Training'
+import { Tutorial } from './Tutorial'
+import { saveSettings } from '../ui/Settings'
 import { DUMMY_LABEL } from '../core/Dummy'
 import { TRAIT_INFO, LENSES, cdKey } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
@@ -27,7 +29,7 @@ const EDGE = 140
 const STEP_MS = 1000 / FPS
 
 /** 전투 설정. VS 모드는 p1·p2만, 스테이지 모드는 stage(0~4)까지 */
-export interface FightSetup { p1: string; p2: string; stage?: number; cpu?: Difficulty; /** 태그 모드: 두 번째 캐릭터 */ p1b?: string; p2b?: string; /** 훈련장 */ training?: boolean }
+export interface FightSetup { p1: string; p2: string; stage?: number; cpu?: Difficulty; /** 태그 모드: 두 번째 캐릭터 */ p1b?: string; p2b?: string; /** 훈련장 */ training?: boolean; /** 첫 실행 튜토리얼 */ tutorial?: boolean }
 
 export class FightScene extends Phaser.Scene {
   private match!: Match
@@ -54,6 +56,7 @@ export class FightScene extends Phaser.Scene {
   private vfxG!: Phaser.GameObjects.Graphics
   private cinema?: UltCinema
   private training?: Training
+  private tutorial?: Tutorial
   private tags: Phaser.GameObjects.Text[] = []
   private koSpin = [false, false]
   private assistSprites: Phaser.GameObjects.Sprite[] = []
@@ -67,8 +70,8 @@ export class FightScene extends Phaser.Scene {
   constructor() { super('Fight') }
 
   init(data: Partial<FightSetup>) {
-    this.setup = { p1: data.p1 ?? 'dp', p2: data.p2 ?? 'dp', stage: data.stage, cpu: data.cpu, p1b: data.p1b, p2b: data.p2b, training: data.training }
-    this.training = undefined
+    this.setup = { p1: data.p1 ?? 'dp', p2: data.p2 ?? 'dp', stage: data.stage, cpu: data.cpu, p1b: data.p1b, p2b: data.p2b, training: data.training, tutorial: data.tutorial }
+    this.training = undefined; this.tutorial = undefined
     const base1 = getCharacter(this.setup.p1), base2 = getCharacter(this.setup.p2)
     const st = this.setup.stage != null ? STAGES[this.setup.stage] : null
     if (st) {
@@ -81,11 +84,11 @@ export class FightScene extends Phaser.Scene {
       this.names = [titleOf(base1.id, myRank), titleOf(base2.id, st.oppRank, st.boss)]
       this.bg = st.bg
       this.texKeys = [base1.id, st.boss ? `${base2.id}_boss` : base2.id === base1.id ? `${base2.id}_alt` : base2.id]
-    } else if (this.setup.training) {
+    } else if (this.setup.training || this.setup.tutorial) {
       // 훈련장: 끝나지 않는 1대1, 상대는 더미
       this.match = new Match(base1, base2)
       this.ai = new SimpleAI('normal')
-      this.names = [`1P ${base1.name}`, `더미 ${base2.name}`]
+      this.names = [`1P ${base1.name}`, this.setup.tutorial ? `튜토리얼 ${base2.name}` : `더미 ${base2.name}`]
       this.bg = 'stage_chroma'
       this.texKeys = [base1.id, base2.id === base1.id ? `${base2.id}_alt` : base2.id]
     } else if (this.setup.p1b && this.setup.p2b) {
@@ -106,7 +109,7 @@ export class FightScene extends Phaser.Scene {
     }
     this.acc = 0; this.lagHp = [1, 1]; this.paused = false; this.resultShown = false
     this.projSprites = new Map()
-    this.slow = 0; this.zoomKick = 0; this.squash = [{ x: 1, y: 1 }, { x: 1, y: 1 }]; this.camKick = { x: 0, y: 0 }; this.koSpin = [false, false]
+    this.bitPool = []; this.slow = 0; this.zoomKick = 0; this.squash = [{ x: 1, y: 1 }, { x: 1, y: 1 }]; this.camKick = { x: 0, y: 0 }; this.koSpin = [false, false]
   }
 
   /** 월드(줌 카메라)에만 보이는 오브젝트 */
@@ -169,6 +172,7 @@ export class FightScene extends Phaser.Scene {
     this.uiCam = this.cameras.add(0, 0, 480, 270)
     this.uiCam.ignore(worldObjs)
     if (this.debug) this.dbg = this.w(this.add.graphics().setDepth(50))
+    if (this.setup.tutorial) this.tutorial = new Tutorial(this, this.match, (o) => this.ui(o), () => { settings.tutorialDone = true; saveSettings(settings); this.scene.start('Menu') })
     if (this.setup.training) this.training = new Training(this, this.match, (o) => this.ui(o), this.setup.p1, (msg) => this.toast(msg))
     // 일시정지 버튼
     const pz = this.ui(text(this, W / 2, 46, '❚❚', 11, COLOR.dim).setInteractive({ useHandCursor: true }).setDepth(30))
@@ -314,7 +318,24 @@ export class FightScene extends Phaser.Scene {
   }
 
   /** 잔상 */
+  /** 접근성 설정을 따르는 흔들림·플래시 */
+  private shake(ms: number, amt: number) { if (settings.reduceShake) { if (amt > 0.012) this.cameras.main.shake(ms / 2, amt * 0.2) } else this.cameras.main.shake(ms, amt) }
+  private flashCam(ms: number, r = 255, g = 255, b = 255) {
+    if (!settings.reduceFlash) { this.cameras.main.flash(ms, r, g, b); return }
+    // 번쩍임 줄이기: 화면 전체 대신 옅은 막이 천천히
+    const veil = this.ui(this.add.rectangle(0, 0, 480, 270, Phaser.Display.Color.GetColor(r, g, b), 0.18).setOrigin(0).setDepth(80))
+    this.tweens.add({ targets: veil, alpha: 0, duration: Math.max(200, ms * 2), onComplete: () => veil.destroy() })
+  }
+
+  /** 파편 사각형 재사용 (휴대폰 성능: 매 타격마다 새로 만들지 않음) */
+  private bitPool: Phaser.GameObjects.Rectangle[] = []
+  private getBit(x: number, y: number, color: number) {
+    const b = this.bitPool.pop() ?? this.w(this.add.rectangle(0, 0, 2, 2, 0xffffff).setDepth(31))
+    return b.setPosition(x, y).setFillStyle(color).setAlpha(1).setVisible(true)
+  }
+
   private ghost(spr: Phaser.GameObjects.Sprite, i: number) {
+    if (settings.fxLow) return
     const g = this.w(this.add.image(spr.x, spr.y, spr.texture.key, spr.frame.name).setOrigin(spr.originX, spr.originY).setFlipX(spr.flipX).setScale(spr.scaleX, spr.scaleY)
       .setTintFill(i === 0 ? 0x5ec8ff : 0xff5470).setAlpha(0.55).setDepth(4))
     this.tweens.add({ targets: g, alpha: 0, duration: 230, onComplete: () => g.destroy() })
@@ -325,7 +346,7 @@ export class FightScene extends Phaser.Scene {
     const sy = GROUND - y
     // 맞은 방향으로 뻗는 날카로운 선 (타격 방향이 보이게)
     const streaks = this.w(this.add.graphics().setDepth(32))
-    for (let k = 0; k < 2 + power * 2; k++) {
+    for (let k = 0; k < (settings.fxLow ? 1 + power : 2 + power * 2); k++) {
       const a = (Math.random() - 0.5) * 0.9 + (dir > 0 ? 0 : Math.PI)
       const r0 = 4 + Math.random() * 4, r1 = 18 + power * 10 + Math.random() * 10
       streaks.lineStyle(k % 2 ? 1 : 2, k % 2 ? color : 0xffffff, 1)
@@ -335,11 +356,11 @@ export class FightScene extends Phaser.Scene {
     this.w(this.add.sprite(x, sy, 'spark')).setDepth(30).setScale(0.9 + power * 0.5).setAngle(Math.random() * 360).play('spark').once('animationcomplete', (_: unknown, __: unknown, s: Phaser.GameObjects.Sprite) => s.destroy())
     const ring = this.w(this.add.circle(x, sy, 3).setStrokeStyle(2, color).setDepth(29))
     this.tweens.add({ targets: ring, scale: 4 + power * 3, alpha: 0, duration: 220 + power * 60, ease: 'Cubic.out', onComplete: () => ring.destroy() })
-    const n = 5 + power * 4
+    const n = settings.fxLow ? 2 + power : 5 + power * 4
     for (let k = 0; k < n; k++) {
       const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * (14 + power * 10)
-      const bit = this.w(this.add.rectangle(x, sy, 2, 2, k % 3 ? 0xffffff : color).setDepth(31))
-      this.tweens.add({ targets: bit, x: x + Math.cos(a) * r, y: sy + Math.sin(a) * r * 0.7 + 6, alpha: 0, duration: 260 + Math.random() * 200, ease: 'Quad.out', onComplete: () => bit.destroy() })
+      const bit = this.getBit(x, sy, k % 3 ? 0xffffff : color)
+      this.tweens.add({ targets: bit, x: x + Math.cos(a) * r, y: sy + Math.sin(a) * r * 0.7 + 6, alpha: 0, duration: 260 + Math.random() * 200, ease: 'Quad.out', onComplete: () => this.bitPool.push(bit.setVisible(false)) })
     }
     if (dmg != null) {
       const t = this.w(this.add.text(x + (Math.random() - 0.5) * 10, sy - 10, String(dmg), { fontFamily: FONT, fontSize: '11px', color: power >= 2 ? '#ffd23f' : '#ffffff', stroke: '#0a0812', strokeThickness: 3, fontStyle: 'bold', resolution: 6 }).setOrigin(0.5).setDepth(34).setScale(power >= 2 ? 0.95 : 0.7))
@@ -386,7 +407,7 @@ export class FightScene extends Phaser.Scene {
         this.cinema?.end(() => undefined)
         const ak = this.texKeys[e.fighter], dk = this.texKeys[1 - e.fighter]
         const sup = animsFor(att.char.id).super
-        this.cinema = new UltCinema(this, (o) => this.ui(o), e.char, ak, `super_${Math.min(1, sup.frames.length - 1)}`, dk, 'hit_0', this.match.cine?.name ?? '', e.fighter, e.value ?? 150)
+        this.cinema = new UltCinema(this, (o) => this.ui(o), e.char, ak, `super_${Math.min(1, sup.frames.length - 1)}`, dk, 'hit_0', this.match.cine?.name ?? '', e.fighter, e.value ?? 150, settings.fxLow || settings.reduceShake, settings.reduceFlash)
         this.controls.show(false)
         sfx('super')
         break
@@ -398,7 +419,7 @@ export class FightScene extends Phaser.Scene {
         c?.end(() => undefined)
         if (this.match.phase === 'fight' || this.match.phase === 'ko') this.controls.show(true)
         this.impact(def.x, def.y + 34, 3, 0xffd23f, e.value, def.x >= att.x ? 1 : -1)
-        this.cameras.main.shake(300, 0.02)
+        this.shake(300, 0.02)
         this.zoomKick = Math.max(this.zoomKick, 0.25)
         this.bigText(`${e.value ?? ''} DAMAGE!`, '#ffd23f', 22, 700)
         break
@@ -415,7 +436,7 @@ export class FightScene extends Phaser.Scene {
     const f = this.match.fighters[winner]
     this.slow = Math.max(this.slow, 90)
     this.koSpin[1 - winner] = true
-    this.cameras.main.flash(300, 255, 240, 200)
+    this.flashCam(300, 255, 240, 200)
     this.zoomKick = Math.max(this.zoomKick, 0.4)
     sfx('ko'); sfx('shutter')
     const g = this.ui(this.add.graphics().setDepth(95))
@@ -756,14 +777,14 @@ export class FightScene extends Phaser.Scene {
           this.squash[e.attacker] = { x: 1.08, y: 0.94 }                     // 때린 쪽도 살짝 눌림 (반동)
           // 카메라를 맞은 방향으로 툭 밀었다가 돌아옴 + 강타는 흔들림·줌
           this.camKick = { x: dir * (2 + power * 2), y: power >= 2 ? -2 : -1 }
-          if (power >= 2) this.cameras.main.shake(e.finisher ? 260 : 130, e.finisher ? 0.018 : 0.009)
+          if (power >= 2) this.shake(e.finisher ? 260 : 130, e.finisher ? 0.018 : 0.009)
           if (power >= 2) this.zoomKick = Math.max(this.zoomKick, 0.07 * power)
           // 강타는 '임팩트 프레임': 아주 짧게 화면이 어두워졌다 돌아옴
-          if (power >= 2 && !e.finisher) this.cameras.main.flash(70, 10, 6, 20)
+          if (power >= 2 && !e.finisher) this.flashCam(70, 10, 6, 20)
           if (power >= 2) for (const d2 of [-1, 1]) { const du = this.w(this.add.image(fd.x - dir * 6, GROUND, 'dust').setDepth(4).setAlpha(0.8)); this.tweens.add({ targets: du, alpha: 0, x: du.x + d2 * 10 - dir * 8, y: GROUND - 3, duration: 300, onComplete: () => du.destroy() }) }
           sfx(e.finisher ? 'hitFinish' : e.heavy ? 'hitHeavy' : 'hit')
           if (e.counter) { sfx('counter'); this.popText(e.x, e.y + 26, 'COUNTER!', '#ff5470') }
-          if (e.crit) { this.bigText('FOCUS!!', '#ff5470', 22, 380); this.cameras.main.flash(90, 255, 255, 255) }
+          if (e.crit) { this.bigText('FOCUS!!', '#ff5470', 22, 380); this.flashCam(90, 255, 255, 255) }
           // 만화 의성어: 기술 종류·세기에 따라
           const ono = e.crit ? '찰칵—쾅!!' : e.sfx === 'slate' ? '딱!' : e.sfx === 'shutter' ? '찰칵!' : e.sfx === 'wave' ? '우웅!' : e.sfx === 'spray' ? '칙!' : e.sfx === 'whip' ? '촥!' : e.finisher ? ['콰광!!', '와장창!!', '쾅!!'][e.combo % 3] : e.heavy ? ['쾅!', '빡!', '퍼억!'][e.combo % 3] : ['퍽!', '탁!', '툭!'][e.combo % 3]
           if (e.heavy || e.finisher || e.combo % 2 === 1 || e.sfx === 'slate' || e.crit) this.onomato(e.x + dir * 10, e.y + 22, ono, e.finisher ? '#ff9f43' : e.heavy ? '#ffd23f' : '#ffffff', e.finisher || !!e.crit)
@@ -787,7 +808,7 @@ export class FightScene extends Phaser.Scene {
           const x = wall ? (f.x < STAGE_W / 2 ? 6 : STAGE_W - 6) : f.x
           this.impact(x, wall ? f.y + 30 : 2, 3, 0xffd23f, undefined, f.x < STAGE_W / 2 ? 1 : -1)
           this.onomato(x + (wall ? (f.x < STAGE_W / 2 ? 16 : -16) : 0), wall ? f.y + 52 : 34, wall ? '벽쿵!!' : '바운드!', '#ffd23f', true)
-          this.cameras.main.shake(wall ? 220 : 160, wall ? 0.014 : 0.01)
+          this.shake(wall ? 220 : 160, wall ? 0.014 : 0.01)
           this.zoomKick = Math.max(this.zoomKick, 0.12)
           for (let k = 0; k < 6; k++) { const du = this.w(this.add.image(x, GROUND - (wall ? f.y + 10 + k * 8 : 0), 'dust').setDepth(4).setScale(1.3)); this.tweens.add({ targets: du, alpha: 0, x: du.x + (wall ? (f.x < STAGE_W / 2 ? 1 : -1) * (8 + k * 3) : (k - 2.5) * 10), y: du.y - 6, duration: 360, onComplete: () => du.destroy() }) }
           sfx('hitHeavy')
@@ -817,7 +838,7 @@ export class FightScene extends Phaser.Scene {
         case 'cine': this.onCine(e); break
         case 'ko': {
           if (e.ult) this.ultKo(e.winner)
-          else { this.bigText('K.O.!', '#ff5470', 36, 1100); sfx('ko'); this.cameras.main.flash(200, 255, 255, 255) }
+          else { this.bigText('K.O.!', '#ff5470', 36, 1100); sfx('ko'); this.flashCam(200, 255, 255, 255) }
           // 진 쪽은 빙글빙글 날아감 (만화식 KO)
           this.koSpin[1 - e.winner] = true
           this.slow = Math.max(this.slow, 40)
@@ -855,7 +876,7 @@ export class FightScene extends Phaser.Scene {
             const d = this.w(this.add.image(f.x + dir * 6, GROUND, 'dust').setDepth(4).setScale(1.4))
             this.tweens.add({ targets: d, alpha: 0, x: d.x + dir * 18, y: GROUND - 6, duration: 420, onComplete: () => d.destroy() })
           }
-          this.cameras.main.shake(120, 0.008)
+          this.shake(120, 0.008)
           sfx('hitHeavy')
           break
         }
@@ -873,41 +894,41 @@ export class FightScene extends Phaser.Scene {
       case 'lens': this.popText(f.x, 84, `${LENSES[e.value ?? 1].name}!`, '#5eead4'); sfx('shutter'); break
       case 'trap': this.popText(e.x, 18, '콘티!', '#facc15'); sfx('trait'); break
       case 'snare': this.popText(e.x, 30, '묶였다!', '#facc15'); this.onomato(e.x, 20, '찌익!', '#facc15'); sfx('whip'); break
-      case 'cue': this.cameras.main.flash(60, 255, 240, 150); this.onomato(e.x, 30, '큐!', '#facc15'); burst(e.x, GROUND - 14, 0xfacc15, 12, 34); sfx('slate'); break
-      case 'parry': this.popText(e.x, 70, 'NG!!', '#ff5470'); this.onomato(e.x, 40, '탁!', '#ffffff'); this.cameras.main.flash(80, 255, 255, 255); this.slow = Math.max(this.slow, 14); sfx('counter'); break
+      case 'cue': this.flashCam(60, 255, 240, 150); this.onomato(e.x, 30, '큐!', '#facc15'); burst(e.x, GROUND - 14, 0xfacc15, 12, 34); sfx('slate'); break
+      case 'parry': this.popText(e.x, 70, 'NG!!', '#ff5470'); this.onomato(e.x, 40, '탁!', '#ffffff'); this.flashCam(80, 255, 255, 255); this.slow = Math.max(this.slow, 14); sfx('counter'); break
       case 'retake': {
         const from = e.value ?? o.x
         const g = this.w(this.add.image(from, GROUND - o.y, this.texKeys[1 - e.fighter], this.sprites[1 - e.fighter].frame.name).setOrigin(0.5, FOOT_Y / FH).setFlipX(this.sprites[1 - e.fighter].flipX).setTintFill(0xffffff).setAlpha(0.7).setDepth(4))
         this.tweens.add({ targets: g, x: o.x, alpha: 0, duration: 260, onComplete: () => g.destroy() })
-        this.bigText('리테이크!', '#ff5470', 22, 700); this.cameras.main.flash(120, 230, 230, 255); sfx('slate')
+        this.bigText('리테이크!', '#ff5470', 22, 700); this.flashCam(120, 230, 230, 255); sfx('slate')
         break
       }
       case 'soundover': {
         const r = e.value ?? 50
         for (let k = 0; k < 4; k++) { const ring = this.w(this.add.circle(f.x, GROUND - 26, 6).setStrokeStyle(3, 0x86efac).setDepth(29)); this.tweens.add({ targets: ring, scale: 4 + r / 12, alpha: 0, delay: k * 70, duration: 420, onComplete: () => ring.destroy() }) }
-        this.cameras.main.shake(200 + r * 4, 0.006 + r * 0.00018); this.onomato(f.x, 60, '쿠우웅!!', '#86efac'); sfx('hitFinish'); sfx('wave')
+        this.shake(200 + r * 4, 0.006 + r * 0.00018); this.onomato(f.x, 60, '쿠우웅!!', '#86efac'); sfx('hitFinish'); sfx('wave')
         break
       }
       case 'noisewall': this.onomato(e.x, 40, '지잉!', '#86efac'); sfx('block'); break
       case 'reverb': this.popText(e.x, 70, `~${e.value}`, '#86efac'); break
-      case 'backlight': this.cameras.main.flash(70, 255, 250, 200); burst(e.x, GROUND - 30, 0xfef08a, 10, 24); sfx('shutter'); break
+      case 'backlight': this.flashCam(70, 255, 250, 200); burst(e.x, GROUND - 30, 0xfef08a, 10, 24); sfx('shutter'); break
       case 'spot': this.popText(e.x, 84, '스폿!', '#fde68a'); sfx('trait'); break
-      case 'stun': this.popText(e.x, 84, '눈부셔!!', '#fde047'); this.onomato(e.x, 60, '번쩍!', '#fef08a'); this.cameras.main.flash(140, 255, 255, 220); this.slow = Math.max(this.slow, 18); sfx('counter'); break
+      case 'stun': this.popText(e.x, 84, '눈부셔!!', '#fde047'); this.onomato(e.x, 60, '번쩍!', '#fef08a'); this.flashCam(140, 255, 255, 220); this.slow = Math.max(this.slow, 18); sfx('counter'); break
       case 'applebox': dust(e.x, 2); this.onomato(e.x, 30, '탕!', '#d6a35c'); sfx('heavy'); break
       case 'wall': dust(e.x, 3); this.onomato(e.x, 56, '세트!', '#d6b27a'); sfx('heavy'); this.camKick = { x: 0, y: 2 }; break
       case 'sofaWarn': this.popText(e.x, 96, '위!!', '#ff5470'); sfx('drop'); break
-      case 'sofa': dust(e.x, 5); this.onomato(e.x, 40, '쿠당!!', '#ff9f43'); this.cameras.main.shake(180, 0.014); sfx('hitHeavy'); break
+      case 'sofa': dust(e.x, 5); this.onomato(e.x, 40, '쿠당!!', '#ff9f43'); this.shake(180, 0.014); sfx('hitHeavy'); break
       case 'wallhit': dust(e.x, 1); sfx('block'); break
       case 'wallbreak': {
         for (let k = 0; k < 10; k++) { const b = this.w(this.add.rectangle(e.x, GROUND - 10 - k * 4, 4, 3, 0xc8955c).setDepth(30)); this.tweens.add({ targets: b, x: b.x + (Math.random() - 0.5) * 60, y: GROUND - Math.random() * 6, angle: 200, duration: 420, ease: 'Quad.out', onComplete: () => b.destroy() }) }
         this.onomato(e.x, 50, '와장창!', '#ff9f43'); sfx('hitHeavy')
         break
       }
-      case 'wallbounce': this.onomato(e.x, 50, '벽꽝!', '#ff9f43'); this.cameras.main.shake(120, 0.012); sfx('hitHeavy'); dust(e.x, 2); break
+      case 'wallbounce': this.onomato(e.x, 50, '벽꽝!', '#ff9f43'); this.shake(120, 0.012); sfx('hitHeavy'); dust(e.x, 2); break
       case 'base': burst(f.x, GROUND - 30, 0xff7eb6, 12, 20); this.popText(f.x, 84, `분장막 ${Math.round(e.value ?? 0)}`, '#ff7eb6'); sfx('spray'); break
       case 'shieldBreak': this.popText(f.x, 84, '분장 무너짐!', '#ff7eb6'); burst(f.x, GROUND - 30, 0xff7eb6, 10, 28); break
       case 'blind': this.popText(e.x, 84, '눈 따가워!', '#fbcfe8'); break
-      case 'cleanse': burst(f.x, GROUND - 26, 0xff7eb6, 30, 56); this.cameras.main.flash(90, 255, 220, 240); this.onomato(f.x, 60, '싹!!', '#ff7eb6'); sfx('spray'); sfx('hitHeavy'); break
+      case 'cleanse': burst(f.x, GROUND - 26, 0xff7eb6, 30, 56); this.flashCam(90, 255, 220, 240); this.onomato(f.x, 60, '싹!!', '#ff7eb6'); sfx('spray'); sfx('hitHeavy'); break
       case 'observe': this.popText(f.x, 84, `관찰 ${e.value}/2`, '#5eead4'); break
       case 'learn': case 'improv': this.popText(f.x, 84, `${e.value === 1 ? 'C' : '→C'} 복사: ${f.char.moves[`copy${e.value}`]?.name ?? ''}!`, '#5eead4'); burst(f.x, GROUND - 40, 0x5eead4, 12, 22); sfx('trait'); break
     }
@@ -962,7 +983,7 @@ export class FightScene extends Phaser.Scene {
       this.pauseLayer.add(button(this, 30, 40, 40, 20, '◀', () => { pi = (pi + pages.length - 1) % pages.length; show() }))
       this.pauseLayer.add(button(this, W - 30, 40, 40, 20, '▶', () => { pi = (pi + 1) % pages.length; show() }))
       this.pauseLayer.add(button(this, W / 2 - 80, 246, 140, 24, '계속하기', () => this.togglePause(), { color: 0x6a2c91 }))
-      this.pauseLayer.add(button(this, W / 2 + 80, 246, 140, 24, '메뉴로', () => this.scene.start('Menu')))
+      this.pauseLayer.add(button(this, W / 2 + 80, 246, 140, 24, this.tutorial ? '튜토리얼 건너뛰기' : '메뉴로', () => { if (this.tutorial) { settings.tutorialDone = true; saveSettings(settings) } this.scene.start('Menu') }))
     } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.controls.show(true) }
   }
 
@@ -1057,8 +1078,10 @@ export class FightScene extends Phaser.Scene {
       const [a, b] = this.match.fighters
       let p2 = this.match.phase === 'fight' ? this.ai.input(b, a, this.match.frame) : emptyInput()
       if (this.training) [p1, p2] = this.training.inputs(p1)
+      if (this.tutorial) p2 = this.tutorial.dummyInput()
       const ev = this.match.step([p1, p2])
       this.training?.after(ev)
+      this.tutorial?.after(ev)
       this.handleEvents(ev)
     }
     this.match.fighters.forEach((f, i) => this.drawFighter(f, i))
@@ -1074,7 +1097,8 @@ export class FightScene extends Phaser.Scene {
     this.drawTraits()
     this.drawMoveFx()
     this.updateHud()
-    if (this.training) { this.training.draw(); this.hud.timer.setText('∞') }
+    if (this.training) this.training.draw()
+    if (this.training || this.tutorial) this.hud.timer.setText('∞')
     if (this.dbg) this.drawDebug()
     if (this.match.phase === 'matchOver' && !this.resultShown && this.match.phaseFrame > 60) this.showResult()
   }
