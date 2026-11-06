@@ -27,17 +27,17 @@ export class StageScene extends Phaser.Scene {
     text(this, W / 2, 32, '막내로 시작해서 스테이지를 깰 때마다 승진합니다', 11, COLOR.dim)
     const prog = loadProgress()
     CHARACTERS.forEach((c, i) => {
-      const x = 90 + (i % 3) * 150, y = 92 + Math.floor(i / 3) * 92
-      const card = this.add.rectangle(x, y, 140, 84, COLOR.panel).setStrokeStyle(2, COLOR.line)
-      this.add.sprite(x - 40, y + 32, c.id, 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(1)
-      text(this, x + 22, y - 28, c.dept, 12, c.color)
+      const x = 62 + (i % 4) * 119, y = 92 + Math.floor(i / 4) * 92
+      const card = this.add.rectangle(x, y, 114, 84, COLOR.panel).setStrokeStyle(2, COLOR.line)
+      this.add.sprite(x - 32, y + 32, c.id, 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(0.9)
+      text(this, x + 20, y - 28, c.dept, 12, c.color)
       const s = prog[c.id]
       const label = !s ? '새로 시작' : s.cleared ? '★ 전설 달성' : `${STAGES[s.stage].name}`
       const rank = !s ? c.titles[0] : s.cleared ? `전설의 ${c.titles[4]}` : c.titles[Math.min(4, s.stage)]
-      text(this, x + 22, y - 8, rank, 11, COLOR.ink)
-      text(this, x + 22, y + 10, label, 11, s?.cleared ? COLOR.accent : COLOR.dim)
+      text(this, x + 20, y - 8, rank, 11, COLOR.ink)
+      text(this, x + 20, y + 10, label, 11, s?.cleared ? COLOR.accent : COLOR.dim)
       // 직급 진행 칸 5개
-      for (let k = 0; k < 5; k++) this.add.rectangle(x - 2 + k * 12, y + 30, 9, 5, s && (s.cleared || k < s.stage) ? 0xffd23f : 0x0a0812).setStrokeStyle(1, 0x3a3456)
+      for (let k = 0; k < 5; k++) this.add.rectangle(x - 4 + k * 10, y + 30, 8, 5, s && (s.cleared || k < s.stage) ? 0xffd23f : 0x0a0812).setStrokeStyle(1, 0x3a3456)
       card.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('confirm'); this.scene.restart({ char: c.id }) })
     })
     button(this, W / 2, 246, 140, 22, '← 메뉴', () => this.scene.start('Menu'))

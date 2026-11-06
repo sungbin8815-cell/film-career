@@ -118,15 +118,36 @@ describe('전투 로직', () => {
     expect(m.wins[1]).toBe(1)
   })
 
-  it('게이지가 없으면 특수기가 안 나가고, 있으면 소모된다', () => {
+  it('Q 스킬은 쿨타임 동안 다시 못 쓰고, 필살(R)은 SP 100이 있어야 나간다', () => {
     const m = new Match(DP, DP); toFight(m)
-    m.step([press('special'), idle()])
-    expect(m.fighters[0].state).not.toBe('attack')
-    for (let i = 0; i < 10; i++) m.step([idle(), idle()])
-    m.fighters[0].meter = 30
+    m.fighters[1].x = 400
     m.step([press('special'), idle()])
     expect(m.fighters[0].state).toBe('attack')
-    expect(m.fighters[0].meter).toBe(5)
+    for (let i = 0; i < 60; i++) m.step([idle(), idle()])
+    expect(m.fighters[0].cds.special1).toBeGreaterThan(0)
+    m.step([press('special'), idle()])
+    expect(m.fighters[0].state).not.toBe('attack')
+    m.step([press('super'), idle()])
+    expect(m.fighters[0].state).not.toBe('attack')
+    m.fighters[0].meter = 100
+    for (let i = 0; i < 2; i++) m.step([idle(), idle()])
+    m.step([press('super'), idle()])
+    expect(m.fighters[0].state).toBe('attack')
+  })
+
+  it('방어는 상대 반대쪽 방향을 누르면 자동, 하단은 앉아서 막아야 한다', () => {
+    const blockedBy = (dirs: Partial<InputState>, moveBtn: Partial<InputState>) => {
+      const m = new Match(DP, DP); toFight(m); closeIn(m)
+      const hp = m.fighters[1].hp
+      let blocked = false
+      for (let i = 0; i < 30; i++) for (const e of m.step([i === 0 ? { ...idle(), ...moveBtn } : idle(), { ...idle(), ...dirs }])) if (e.type === 'block') blocked = true
+      return { blocked, dmg: hp - m.fighters[1].hp }
+    }
+    // 2P는 왼쪽(1P)을 보고 있으니 오른쪽이 '뒤'
+    expect(blockedBy({ right: true }, { heavy: true }).blocked).toBe(true)
+    expect(blockedBy({}, { heavy: true }).blocked).toBe(false)
+    expect(blockedBy({ right: true }, { heavy: true, down: true }).blocked).toBe(false)              // 하단(스윕)은 서서 못 막음
+    expect(blockedBy({ right: true, down: true }, { heavy: true, down: true }).blocked).toBe(true)  // 앉아 막기
   })
 
   it('AI끼리 붙여도 매치가 끝까지 진행된다', () => {

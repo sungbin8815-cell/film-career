@@ -5,7 +5,8 @@ import { emptyInput, type InputState } from '../core/types'
 const KEYMAP: Record<string, keyof InputState> = {
   a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right',
   w: 'up', arrowup: 'up', s: 'down', arrowdown: 'down',
-  j: 'light', k: 'heavy', l: 'special', i: 'guard', ' ': 'guard', u: 'super', o: 'trait',
+  // J 약 · K 강 · L Q · I W · O E · U R(필살) / 태그: Q 교체 · E 어시스트 / 방어 = 상대 반대 방향
+  j: 'light', k: 'heavy', l: 'special', i: 'skill2', o: 'trait', u: 'super', q: 'swap', e: 'assist',
 }
 
 export class Controls {
@@ -16,6 +17,8 @@ export class Controls {
   private superBtn!: HTMLButtonElement
   private specialBtn!: HTMLButtonElement
   private traitBtn!: HTMLButtonElement
+  private w2Btn!: HTMLButtonElement
+  private tagBtns: HTMLButtonElement[] = []
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -38,14 +41,27 @@ export class Controls {
   /** 필살·특수 버튼 불 켜기 (게이지에 따라) */
   setMeter(meter: number) {
     this.superBtn.classList.toggle('ready', meter >= 100)
-    this.specialBtn.classList.toggle('ready', meter >= 25)
   }
 
-  /** 고유 버튼: 캐릭터마다 이름이 바뀌고, 쓸 수 있을 때 불이 켜짐 */
-  setTrait(label: string, ready: boolean) {
-    const b = this.traitBtn.querySelector('b')!
-    if (b.textContent !== label) { b.textContent = label; this.traitBtn.classList.toggle('long', label.length > 2) }
-    this.traitBtn.classList.toggle('ready', ready)
+  /** 스킬 버튼 표시: 이름, 쿨타임(초), 쓸 수 있는지 */
+  setSkill(slot: 'Q' | 'W' | 'E', label: string, cd: number, ready: boolean) {
+    const btn = slot === 'Q' ? this.specialBtn : slot === 'W' ? this.w2Btn : this.traitBtn
+    const b = btn.querySelector('b')!, sm = btn.querySelector('i')!
+    const text = cd > 0 ? String(Math.ceil(cd / 60)) : label
+    if (b.textContent !== text) { b.textContent = text; btn.classList.toggle('long', text.length > 2) }
+    if (sm.textContent !== slot) sm.textContent = slot
+    btn.classList.toggle('ready', ready && cd <= 0)
+    btn.classList.toggle('cool', cd > 0)
+  }
+  /** 예전 이름 호환 */
+  setTrait(label: string, ready: boolean) { this.setSkill('E', label, 0, ready) }
+  /** 태그 모드 버튼 보이기 + 쿨타임 */
+  setTag(on: boolean, swapCd = 0, assistCd = 0) {
+    this.root.classList.toggle('tag', on)
+    const [sw, as] = this.tagBtns
+    sw.classList.toggle('cool', swapCd > 0); as.classList.toggle('cool', assistCd > 0)
+    sw.querySelector('b')!.textContent = swapCd > 0 ? String(Math.ceil(swapCd / 60)) : '교체'
+    as.querySelector('b')!.textContent = assistCd > 0 ? String(Math.ceil(assistCd / 60)) : '어시'
   }
 
   private onKey(e: KeyboardEvent, down: boolean) {
@@ -86,7 +102,7 @@ export class Controls {
     const mk = (k: keyof InputState, label: string, sub: string, cls: string) => {
       const b = document.createElement('button')
       b.className = `ab ${cls}`
-      b.innerHTML = `<b>${label}</b><small>${sub}</small>`
+      b.innerHTML = `<b>${label}</b><i></i><small>${sub}</small>`
       b.setAttribute('aria-label', sub)
       const on = (e: PointerEvent) => { e.preventDefault(); this.touch[k] = true; b.classList.add('down'); b.setPointerCapture(e.pointerId); navigator.vibrate?.(8) }
       const off = () => { this.touch[k] = false; b.classList.remove('down') }
@@ -95,13 +111,29 @@ export class Controls {
       btns.appendChild(b)
       return b
     }
+    // 1줄: 약 강 R(필살) / 2줄: Q W E (방어는 버튼 없이 상대 반대 방향)
     mk('light', '약', '약공격', 'b-light')
     mk('heavy', '강', '강공격', 'b-heavy')
-    this.specialBtn = mk('special', '특', '특수기 (▼+특 = 다른 기술)', 'b-special')
-    mk('guard', '방어', '방어', 'b-guard')
-    this.traitBtn = mk('trait', '고유', '직업 고유 특성', 'b-trait')
-    this.superBtn = mk('super', '필살', '필살기', 'b-super')
-    this.root.append(dpad, btns)
+    this.superBtn = mk('super', 'R', '필살기 (SP 100)', 'b-super')
+    this.specialBtn = mk('special', 'Q', '스킬 Q', 'b-special')
+    this.w2Btn = mk('skill2', 'W', '스킬 W', 'b-special b-w')
+    this.traitBtn = mk('trait', 'E', '고유 스킬 E', 'b-trait')
+    // 태그 모드: 교체·어시스트 (방향 패드 위쪽)
+    const tag = document.createElement('div')
+    tag.className = 'tagbtns'
+    const mkTag = (k: keyof InputState, label: string, cls: string) => {
+      const b = document.createElement('button')
+      b.className = `ab ${cls}`; b.innerHTML = `<b>${label}</b>`
+      const on = (e: PointerEvent) => { e.preventDefault(); this.touch[k] = true; b.classList.add('down'); b.setPointerCapture(e.pointerId) }
+      const off = () => { this.touch[k] = false; b.classList.remove('down') }
+      b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off)
+      tag.appendChild(b); this.tagBtns.push(b)
+    }
+    mkTag('swap', '교체', 'b-swap'); mkTag('assist', '어시', 'b-assist')
+    const left = document.createElement('div')
+    left.className = 'leftpad'
+    left.append(tag, dpad)
+    this.root.append(left, btns)
     // 길게 눌러도 메뉴·확대가 안 뜨게
     this.root.addEventListener('contextmenu', (e) => e.preventDefault())
   }

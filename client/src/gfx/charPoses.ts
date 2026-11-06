@@ -3,6 +3,7 @@
 // item.long = 앞손에서 긴 장비가 뻗는 방향, item.small = 한 손 장비, fx = 앞손 기준 특수 효과 위치
 import type { Pose } from './Painter'
 import { ANIMS, up, all, type AnimDef } from './poses'
+import { CHARACTERS, KIT_OF } from '../config/characters'
 
 type V = [number, number]
 
@@ -114,6 +115,11 @@ const DIRECTOR: Record<string, AnimDef> = {
     mk({ ...low, hdF: [48, 57], hdB: [38, 56], face: 'happy', ftF: [38, 58], ftB: [24, 58] }),
     mk({ hdF: [42, 30], hdB: [29, 42], elB: [24, 37], face: 'happy' }),
   ),
+  // W: NG! 받아치기 자세 (메가폰을 가로로 들고 노려봄)
+  parry: anim(10, false,
+    mk({ sh: [31, 32], hdF: [38, 26], hdB: [32, 28], item: { long: [-2, -16] }, face: 'angry', ftF: [39, 58], ftB: [23, 58] }),
+    mk({ sh: [31, 32], hdF: [38, 25], hdB: [32, 27], item: { long: [-2, -16] }, fx: [6, -4], face: 'shout', ftF: [39, 58], ftB: [23, 58] }),
+  ),
   // 고유2: "위치로!" 순간이동 (팔 벌리고 착지)
   trait2: anim(10, false,
     mk({ hdF: [46, 28], hdB: [18, 28], face: 'shout' }),
@@ -198,10 +204,11 @@ const SOUND: Record<string, AnimDef> = {
     mk({ ...low, hdF: [42, 48], hdB: [37, 48], item: { long: [20, 9] }, ftF: [40, 58], ftB: [22, 58], face: 'shout', smear: [[40, 58], [56, 58], [64, 57]] }),
     mk({ ...low, hdF: [38, 46], hdB: [34, 46], item: { long: [14, 10] }, ftF: [38, 58], ftB: [24, 58] }),
   ),
-  // 고유: REC 버튼 누르기
-  trait: anim(8, false,
-    mk({ sh: [32, 33], head: [34, 19], hdF: [38, 34], item: { small: 'front', at: [2, -1] }, hdB: [36, 36], face: 'focus' }),
-    mk({ sh: [32, 33], head: [34, 19], hdF: [38, 34], item: { small: 'front', at: [2, -1] }, hdB: [40, 32], face: 'happy' }),
+  // E: SOUND OVER (웅크렸다가 붐을 치켜들고 온몸으로 방출)
+  trait: anim(10, false,
+    mk({ ...low, hdF: [36, 44], hdB: [30, 44], item: { long: [10, 8] }, face: 'focus', ftF: [40, 58], ftB: [22, 58] }),
+    all(mk({ sh: [31, 30], head: [30, 15], hdF: [38, 12], hdB: [24, 14], item: { long: [4, -20] }, fx: [12, 14], face: 'shout', ftF: [42, 57], ftB: [20, 57] }), 0, -1),
+    mk({ hdF: [40, 30], hdB: [28, 30], item: { long: [14, 2] }, face: 'happy', ftF: [40, 58], ftB: [22, 58] }),
   ),
   // 고유2: 플레이백 (녹음기를 내밀어 재생)
   trait2: anim(10, false,
@@ -471,9 +478,109 @@ const MAKEUP: Record<string, AnimDef> = {
   ),
 }
 
-export const CHAR_ANIMS: Record<string, Record<string, AnimDef>> = { director: DIRECTOR, sound: SOUND, gaffer: GAFFER, art: ART, makeup: MAKEUP }
+// ───────────────────────── 배우: 소품 칼 + 대본, 폼 잡는 연기파 (펜싱 자세) ─────────────────────────
+const C0 = mk({ sh: [32, 32], hdF: [38, 34], item: { long: [10, -12] }, hdB: [27, 41], elB: [24, 36], ftF: [39, 58], ftB: [24, 58] })
+const ACTOR: Record<string, AnimDef> = {
+  idle: anim(4, true, C0, C0, up(C0, 0, 1), up(blink(C0), 0, 1)),
+  guard: anim(1, false, mk({ hdF: [38, 30], item: { long: [2, -18] }, hdB: [33, 34], face: 'angry', ftF: [39, 58], ftB: [23, 58] })),
+  victory: anim(4, true,
+    mk({ hdF: [40, 20], item: { long: [4, -18] }, hdB: [27, 41], elB: [24, 36], face: 'happy' }),
+    mk({ sh: [33, 34], head: [36, 21], hdF: [42, 34], item: { long: [14, 6] }, hdB: [24, 30], face: 'blink' }),
+    mk({ sh: [33, 34], head: [36, 21], hdF: [42, 34], item: { long: [14, 6] }, hdB: [24, 30], face: 'happy' }),
+    mk({ hdF: [40, 24], item: { small: 'up' }, fx: [6, -8], hdB: [27, 41], elB: [24, 36], face: 'happy' }),
+  ),
+  // 약: 펜싱 찌르기
+  light: anim(20, false,
+    mk({ sh: [31, 32], hdF: [35, 34], item: { long: [12, -2] }, hdB: [24, 28], ftB: [22, 58], face: 'focus' }),
+    mk({ sh: [36, 32], head: [38, 17], hdF: [46, 31], item: { long: [16, 0] }, hdB: [22, 26], ftF: [45, 58], ftB: [21, 58], face: 'shout', smear: [[44, 30], [58, 30], [63, 30]] }),
+    mk({ sh: [34, 32], hdF: [42, 33], item: { long: [14, -1] }, hdB: [24, 28], ftF: [42, 58], face: 'angry' }),
+  ),
+  // 강: 사선 베기
+  heavy: anim(10, false,
+    mk({ sh: [30, 32], hdF: [28, 18], hdB: [30, 22], item: { long: [-8, -14] }, ftB: [21, 58], face: 'angry' }),
+    mk({ hdF: [38, 18], hdB: [34, 20], item: { long: [14, -12] }, face: 'shout', smear: [[20, 4], [40, 2], [58, 12]] }),
+    mk({ sh: [36, 33], head: [38, 19], hdF: [44, 34], hdB: [40, 34], item: { long: [16, 12] }, ftF: [44, 58], face: 'shout', smear: [[58, 14], [64, 34], [56, 52]] }),
+    mk({ sh: [35, 33], hdF: [42, 40], item: { long: [14, 14] }, ftF: [42, 58] }),
+  ),
+  // Q 기본: 마임 펀치 (보이지 않는 주먹)
+  special1: anim(12, false,
+    mk({ sh: [30, 32], hdF: [30, 32], hdB: [26, 30], face: 'focus', ftB: [21, 58] }),
+    mk({ sh: [38, 32], head: [40, 18], hdF: [50, 30], hdB: [28, 34], fx: [8, 0], ftF: [46, 58], ftB: [20, 58], face: 'shout', smear: [[28, 28], [44, 28], [58, 30]] }),
+    mk({ sh: [36, 32], hdF: [46, 32], hdB: [28, 36], ftF: [44, 58], face: 'happy' }),
+  ),
+  // W 기본: 스턴트 구르기 (몸을 말고 앞으로 데굴)
+  special2: anim(14, true,
+    mk({ sh: [33, 44], head: [37, 34], hip: [28, 50], hdF: [38, 52], hdB: [30, 52], ftF: [34, 58], ftB: [24, 56], face: 'focus' }),
+    mk({ sh: [30, 46], head: [32, 40], hip: [34, 48], hdF: [28, 54], hdB: [36, 54], ftF: [40, 50], ftB: [36, 56], face: 'shout' }),
+  ),
+  // E: 즉흥 연기 (턱 괴고 관찰 → 손가락 딱)
+  trait: anim(10, false,
+    mk({ hdF: [36, 28], hdB: [30, 38], item: { long: [10, -12], from: 'B' }, face: 'focus' }),
+    mk({ hdF: [44, 22], fx: [4, -6], hdB: [27, 41], elB: [24, 36], face: 'happy' }),
+    mk({ hdF: [42, 30], item: { small: 'front' }, hdB: [27, 41], elB: [24, 36], face: 'happy' }),
+  ),
+  // R 기본(상대 필살이 없을 때): 칼 난무
+  super: anim(14, true,
+    mk({ sh: [36, 31], hdF: [46, 24], item: { long: [14, -8] }, ftF: [42, 56], ftB: [22, 56], face: 'shout', smear: [[34, 18], [50, 14], [62, 22]] }),
+    mk({ sh: [36, 31], hdF: [46, 38], item: { long: [14, 8] }, ftF: [28, 56], ftB: [40, 56], face: 'angry', smear: [[36, 44], [52, 46], [62, 38]] }),
+  ),
+  jab3: anim(14, false,
+    mk({ sh: [30, 32], hdF: [26, 26], item: { long: [-10, -8] }, ftB: [21, 58], face: 'focus' }),
+    mk({ sh: [37, 32], head: [39, 18], hdF: [48, 30], item: { long: [16, 2] }, ftF: [46, 58], face: 'shout', smear: [[22, 18], [44, 24], [64, 30]] }),
+    mk({ sh: [35, 32], hdF: [44, 34], item: { long: [14, 4] }, ftF: [43, 58], face: 'angry' }),
+  ),
+  upper: anim(10, false,
+    mk({ ...low, hdF: [38, 46], item: { long: [14, 6] }, ftF: [38, 58], ftB: [24, 58], face: 'focus' }),
+    all(mk({ sh: [35, 28], hdF: [42, 20], item: { long: [6, -18] }, face: 'shout', smear: [[52, 52], [58, 30], [50, 4]] }), 0, -3),
+    all(mk({ sh: [34, 28], hdF: [40, 14], item: { long: [0, -18] }, face: 'happy', ftB: [30, 52] }), 0, -5),
+    C0,
+  ),
+  zoompunch: anim(12, false,
+    mk({ sh: [29, 33], head: [29, 18], hdF: [28, 32], item: { long: [12, -2] }, ftB: [20, 58], face: 'focus' }),
+    mk({ sh: [40, 33], head: [43, 19], hip: [33, 43], hdF: [52, 30], item: { long: [16, 0] }, ftF: [48, 58], ftB: [18, 58], face: 'shout', smear: [[20, 30], [42, 30], [64, 30]] }),
+    mk({ sh: [37, 33], hdF: [47, 32], item: { long: [15, 1] }, ftF: [45, 58], face: 'angry' }),
+  ),
+  spin: anim(16, true,
+    mk({ hdF: [48, 28], item: { long: [16, -2] }, hdB: [24, 34], face: 'shout', smear: [[10, 16], [32, 4], [62, 18]] }),
+    mk({ hdB: [18, 28], item: { long: [-16, -2], from: 'B' }, hdF: [36, 34], face: 'shout', smear: [[62, 34], [40, 44], [4, 34]] }),
+  ),
+  flash: anim(12, false,
+    mk({ hdF: [38, 24], item: { small: 'up' }, face: 'happy' }),
+    mk({ hdF: [44, 18], fx: [2, -6], hdB: [22, 22], face: 'happy', ftB: [30, 52] }),
+    mk({ hdF: [40, 28], item: { long: [10, -12] }, face: 'blink' }),
+  ),
+  rush: anim(16, true,
+    mk({ sh: [35, 31], hdF: [48, 26], item: { long: [14, -6] }, ftF: [42, 58], face: 'shout', smear: [[40, 22], [54, 20], [62, 24]] }),
+    mk({ sh: [35, 31], hdF: [48, 36], item: { long: [14, 6] }, ftF: [42, 58], face: 'angry', smear: [[40, 40], [54, 42], [62, 38]] }),
+    mk({ sh: [35, 31], hdF: [48, 31], item: { long: [16, 0] }, ftF: [42, 58], face: 'shout', smear: [[40, 31], [56, 31], [64, 31]] }),
+  ),
+  sweep: anim(10, false,
+    mk({ ...low, hdF: [38, 46], item: { long: [12, 8] }, ftF: [38, 58], ftB: [24, 58], face: 'focus' }),
+    mk({ ...low, hdF: [42, 50], item: { long: [20, 6] }, ftF: [42, 58], ftB: [22, 58], face: 'shout', smear: [[40, 58], [56, 58], [64, 57]] }),
+    mk({ ...low, hdF: [38, 46], item: { long: [12, 8] }, ftF: [38, 58], ftB: [24, 58] }),
+  ),
+}
+
+export const CHAR_ANIMS: Record<string, Record<string, AnimDef>> = { director: DIRECTOR, sound: SOUND, gaffer: GAFFER, art: ART, makeup: MAKEUP, actor: ACTOR }
+
+/** 배우가 따라 할 수 있는 다른 캐릭터 동작: "캐릭터:동작" 이름, 그 캐릭터 장비로 그림 */
+function copyAnims(): Record<string, AnimDef> {
+  const out: Record<string, AnimDef> = {}
+  for (const c of CHARACTERS) {
+    if (c.id === 'actor') continue
+    const own = { ...ANIMS, ...(CHAR_ANIMS[c.id] ?? {}) }
+    for (const m of Object.values(c.moves)) {
+      if (!/^(special1|special2|upper|zoompunch|spin|rush|flash|super)/.test(m.id)) continue
+      const name = m.anim ?? m.id
+      if (own[name]) out[`${c.id}:${name}`] = { ...own[name], kit: KIT_OF[c.id] }
+    }
+  }
+  return out
+}
 
 /** 그 캐릭터가 쓰는 동작 전체 (공용 동작 + 전용 동작) */
+let copyCache: Record<string, AnimDef> | null = null
 export function animsFor(charId: string): Record<string, AnimDef> {
+  if (charId === 'actor') return { ...ANIMS, ...ACTOR, ...(copyCache ??= copyAnims()) }
   return { ...ANIMS, ...(CHAR_ANIMS[charId] ?? {}) }
 }

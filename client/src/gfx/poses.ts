@@ -24,7 +24,7 @@ export const all = (p: Pose, dx: number, dy: number): Pose => {
 
 const stance = P({ ftF: [38, 58], knF: [36, 50], ftB: [24, 58], knB: [27, 50] })
 
-export interface AnimDef { frames: Pose[]; fps: number; loop: boolean }
+export interface AnimDef { frames: Pose[]; fps: number; loop: boolean; /** 다른 캐릭터 장비로 그릴 때 (배우의 따라하기) */ kit?: string }
 
 export const ANIMS: Record<string, AnimDef> = {
   idle: { frames: [stance, stance, up(stance, 0, 1), up({ ...stance, face: 'blink' }, 0, 1)], fps: 4, loop: true },
@@ -157,6 +157,34 @@ export const ANIMS: Record<string, AnimDef> = {
       all(P({ head: [34, 15], sh: [33, 29], elF: [40, 24], hdF: [46, 19], elB: [26, 24], hdB: [20, 19], prop: 'fxFront', face: 'shout', knF: [37, 49], ftF: [40, 57], knB: [26, 49], ftB: [23, 57] }), 0, -1),
       P({ elF: [38, 31], hdF: [42, 30], elB: [27, 31], hdB: [24, 30], prop: 'none', face: 'happy' }),
     ], fps: 10, loop: false,
+  },
+
+  // ───── 공용: 점프 공격·3타·하단 잽 (장비는 캐릭터마다) ─────
+  jl: {
+    frames: [
+      all(P({ knF: [37, 45], ftF: [35, 52], knB: [26, 46], ftB: [27, 53], elF: [33, 30], hdF: [32, 26], prop: 'cameraUp', face: 'focus' }), 0, -2),
+      all(P({ head: [35, 18], knF: [37, 45], ftF: [36, 52], knB: [27, 47], ftB: [26, 53], elF: [40, 38], hdF: [44, 44], prop: 'cameraLow', face: 'shout', smear: [[36, 26], [46, 36], [50, 48]] }), 0, -2),
+    ], fps: 12, loop: false,
+  },
+  jh: {
+    frames: [
+      all(P({ knF: [36, 44], ftF: [34, 51], knB: [27, 45], ftB: [27, 52], elF: [27, 24], hdF: [24, 18], elB: [26, 26], hdB: [24, 21], prop: 'tripodOver', face: 'angry' }), 0, -2),
+      all(P({ head: [36, 19], knF: [38, 46], ftF: [40, 53], knB: [27, 47], ftB: [25, 54], elF: [41, 34], hdF: [45, 38], elB: [38, 35], hdB: [42, 39], prop: 'tripodLow', face: 'shout', smear: [[30, 4], [50, 14], [60, 40]] }), 0, -2),
+      all(P({ knF: [37, 46], ftF: [38, 53], knB: [27, 47], ftB: [26, 54], elF: [39, 38], hdF: [42, 44], prop: 'tripodLow', face: 'angry' }), 0, -2),
+    ], fps: 12, loop: false,
+  },
+  jab3: {
+    frames: [
+      P({ head: [30, 17], sh: [29, 31], elF: [27, 30], hdF: [25, 27], prop: 'cameraLow', face: 'focus', ftB: [21, 58], knB: [25, 50] }),
+      P({ head: [39, 17], sh: [37, 31], elF: [44, 31], hdF: [50, 30], prop: 'cameraFront', face: 'shout', knF: [41, 50], ftF: [46, 58], knB: [26, 50], ftB: [20, 57], smear: [[24, 22], [40, 26], [56, 30]] }),
+      P({ head: [37, 17], sh: [35, 31], elF: [41, 34], hdF: [45, 34], prop: 'cameraFront', face: 'angry', ftF: [43, 58] }),
+    ], fps: 14, loop: false,
+  },
+  lowjab: {
+    frames: [
+      P({ head: [35, 27], sh: [33, 40], hip: [31, 49], knF: [39, 51], ftF: [38, 58], knB: [24, 53], ftB: [25, 58], elF: [36, 44], hdF: [37, 47], elB: [28, 45], hdB: [29, 49], prop: 'cameraLow', face: 'focus' }),
+      P({ head: [37, 27], sh: [35, 40], hip: [31, 49], knF: [41, 51], ftF: [42, 58], knB: [24, 53], ftB: [24, 58], elF: [41, 47], hdF: [47, 52], elB: [29, 45], hdB: [30, 49], prop: 'cameraLow', face: 'shout', smear: [[38, 56], [50, 56], [58, 55]] }),
+    ], fps: 16, loop: false,
   },
 
   // 촬영감독 고유: 렌즈 교체 (뒷손으로 렌즈를 돌려 끼움)

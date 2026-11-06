@@ -27,6 +27,10 @@ export const COSTUMES: Record<string, Costume> = {
   art: { skin: '#f6c9a0', hair: '#7c4a2a', hairStyle: 'bun', hat: undefined, hoodie: '#e8e4da', top: 'apron', topAccent: '#3d6fb6', strings: '#a855f7', pants: '#4b5563', shoes: '#a855f7', shoeStripe: '#f4f1ea', eye: E, blush: '#f2918e' },
   art_alt: { skin: '#eab88d', hair: '#151018', hairStyle: 'bun', hoodie: '#fde68a', top: 'apron', topAccent: '#78350f', strings: '#22c55e', pants: '#3f3f46', shoes: '#22c55e', shoeStripe: '#f4f1ea', eye: E, blush: '#ee8b8b' },
   art_boss: { skin: '#f0c19a', hair: '#0c0a10', hairStyle: 'bun', hoodie: '#1c1a22', top: 'apron', topAccent: '#0c0a10', strings: '#d4af37', pants: '#111016', shoes: '#d4af37', shoeStripe: '#111016', eye: '#b91c1c', blush: '#e88a8a' },
+  // 배우: 넘긴 머리 + 선글라스 + 버건디 블레이저 + 흰 스카프
+  actor: { skin: '#f6cfae', hair: '#120d12', hairStyle: 'spiky', hoodie: '#e8e4da', top: 'jacket', topAccent: '#7f1d1d', strings: '#f4f1ea', pants: '#1c1a22', shoes: '#f4f1ea', shoeStripe: '#7f1d1d', eye: E, blush: '#f2918e', glasses: '#0a0812' },
+  actor_alt: { skin: '#e8b58c', hair: '#c08a3e', hairStyle: 'spiky', hoodie: '#1f2937', top: 'jacket', topAccent: '#1e3a8a', strings: '#facc15', pants: '#e5e7eb', shoes: '#1e3a8a', shoeStripe: '#e5e7eb', eye: E, blush: '#ee8b8b', glasses: '#7c2d12' },
+  actor_boss: { skin: '#f0c19a', hair: '#e5e5e5', hairStyle: 'spiky', hoodie: '#1c1a22', top: 'jacket', topAccent: '#0c0a10', strings: '#d4af37', pants: '#111016', shoes: '#d4af37', shoeStripe: '#111016', eye: '#b91c1c', blush: '#e88a8a', glasses: '#d4af37' },
   // 분장실장: 긴 머리 + 검은 작업복 + 분홍 브러시 벨트
   makeup: { skin: '#f8d2b4', hair: '#4a2433', hairStyle: 'long', hoodie: '#2b2433', top: 'apron', topAccent: '#3b3145', strings: '#ff7eb6', pants: '#2b2433', shoes: '#ff7eb6', shoeStripe: '#ffffff', eye: E, blush: '#ff8fb0', belt: '#ff7eb6' },
   makeup_alt: { skin: '#eab88d', hair: '#e8c26a', hairStyle: 'long', hoodie: '#f4f1ea', top: 'apron', topAccent: '#d6d3d1', strings: '#8b5cf6', pants: '#e5e7eb', shoes: '#8b5cf6', shoeStripe: '#ffffff', eye: E, blush: '#ff8fb0', belt: '#8b5cf6' },
@@ -35,7 +39,7 @@ export const COSTUMES: Record<string, Costume> = {
 
 /** 텍스처 키 → 캐릭터 id (dp_alt → dp) */
 const charOf = (key: string) => key.replace(/_(alt|boss)$/, '')
-export const PROJECTILE_KINDS = ['lightstand', 'cut', 'wave', 'script', 'bulb', 'paint', 'spray', 'beam']
+export const PROJECTILE_KINDS = ['lightstand', 'cut', 'wave', 'script', 'bulb', 'paint', 'spray', 'beam', 'snipe']
 
 export function animKey(tex: string, anim: string) { return `${tex}_${anim}` }
 
@@ -50,14 +54,16 @@ export function ensureFighterTexture(scene: Phaser.Scene, key: string) {
   const costume = COSTUMES[key]
   {
     const ANIMS = animsFor(charOf(key))
-    const all = Object.entries(ANIMS).flatMap(([name, a]) => a.frames.map((p, i) => ({ name: `${name}_${i}`, pose: p })))
+    const all = Object.entries(ANIMS).flatMap(([name, a]) => a.frames.map((p, i) => ({ name: `${name}_${i}`, pose: p, kit: a.kit })))
+    // 격자로 배치 (프레임이 많아도 텍스처 크기 한도를 넘지 않게)
+    const COLS = 32
     const sheet = document.createElement('canvas')
-    sheet.width = FW * all.length; sheet.height = FH
+    sheet.width = FW * Math.min(COLS, all.length); sheet.height = FH * Math.ceil(all.length / COLS)
     const ctx = sheet.getContext('2d')!
     const kit = KITS[KIT_OF[charOf(key)] ?? 'camera']
-    all.forEach((f, i) => ctx.drawImage(paint(costume, f.pose, kit), i * FW, 0))
+    all.forEach((f, i) => ctx.drawImage(paint(costume, f.pose, f.kit ? KITS[f.kit] : kit), (i % COLS) * FW, Math.floor(i / COLS) * FH))
     const tex = scene.textures.addCanvas(key, sheet)!
-    all.forEach((f, i) => tex.add(f.name, 0, i * FW, 0, FW, FH))
+    all.forEach((f, i) => tex.add(f.name, 0, (i % COLS) * FW, Math.floor(i / COLS) * FH, FW, FH))
     for (const [name, a] of Object.entries(ANIMS)) {
       scene.anims.create({
         key: animKey(key, name),

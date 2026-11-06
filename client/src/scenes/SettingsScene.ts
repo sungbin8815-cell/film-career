@@ -21,12 +21,11 @@ export class SettingsScene extends Phaser.Scene {
     draw()
     text(this, W / 2, 164, [
       '조작법',
-      '휴대폰: 왼쪽 방향패드 · 오른쪽 버튼',
-      '키보드: A D 이동 · W 점프 · S 앉기',
-      'J 약 · K 강 · L 특수 · I/스페이스 방어 · U 필살 · O 고유',
-      '▼ + 특 = 두 번째 특수기 · 같은 방향 두 번 = 달리기',
-      '콤보(공통): 약약강 · 약강강 · 강강 · ▼+강',
-      '약약특(SP10) · 약강특(SP25) · 기술 이름은 CHARACTER에서',
+      '이동 A D · 점프 W · 앉기 S · 방어 = 상대 반대쪽 방향',
+      'J 약 · K 강 · L Q · I W · O E · U R(필살)',
+      '태그 모드: Q 교체 · E 어시스트',
+      '콤보: 약약약 · 약약강 · 약강강 · 강강 · ↓+약 · ↓+강',
+      '약약Q(SP10) · 약강Q(SP25) · 점프 중 약·강 = 점프 공격',
     ].join('\n'), 11, COLOR.ink).setAlign('center').setLineSpacing(2)
     button(this, W / 2, 246, 120, 22, '← 메뉴', () => this.scene.start('Menu'))
   }

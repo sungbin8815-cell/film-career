@@ -1,11 +1,11 @@
 // 한 명의 파이터: 상태 머신 + 물리. Phaser 없음.
 import type { Btn, CharacterData, FighterStateName, InputState, MoveData, MoveId, Rect } from './types'
 import { emptyInput, STAGE_W } from './types'
-import { newTraitState, type TraitWorld } from './Traits'
+import { newTraitState, cdKey, type TraitWorld } from './Traits'
 
 export const METER_MAX = 100
 const BUFFER = 8          // 입력 선입력 허용 프레임
-const ATTACK_KEYS = ['light', 'heavy', 'special', 'super'] as const
+const ATTACK_KEYS = ['light', 'heavy', 'special', 'super', 'skill2'] as const
 const RUN_TAP = 12        // 같은 방향 두 번 누르기 간격
 export const WALL = 14    // 화면 끝 여백
 
@@ -31,6 +31,9 @@ export class Fighter {
   combo = 0            // 내가 넣고 있는 콤보 수
   lightChain = 0
   guardHeld = false
+  crouchHeld = false
+  /** 다가오는 공격이 있는지 (Match가 매 프레임 채움) → 뒤로 누르면 걷지 않고 방어 자세 */
+  threat = false
   hitConfirmed = false
   private prev: InputState = emptyInput()
   private pressedAt: Partial<Record<keyof InputState, number>> = {}
@@ -43,21 +46,35 @@ export class Fighter {
   armorLeft = 0
   wallBounced = false
   hitWallThisMove = false
-  pendingTrait: string | null = null
+  /** 이번 프레임에 발동할 스킬 효과 */
+  pendingEffect: { effect: string; move: MoveData } | null = null
+  /** 이번 프레임에 쏠 투사체 (기술의 판정 프레임에 나감) */
+  pendingShot: MoveData | null = null
+  /** 스킬 쿨타임 (Q=special1, W=special2, E=trait) */
+  cds: Record<string, number> = {}
+  snare = 0     // 연출 콘티에 묶임 (못 움직임)
+  frozen = 0    // 리테이크로 멈춤
+  dizzy = 0     // 조명 노출로 기절 (별 표시)
+  blind = 0     // 분장 파우더 (판정 작아짐)
+  floorY = 0    // 발밑 높이 (애플박스 위면 > 0)
+  /** 태그 모드 정보 (Match가 매 프레임 채움, AI가 참고) */
+  team?: { partnerHp: number; canSwap: boolean; canAssist: boolean }
 
   readonly maxHp: number
   readonly dmgMul: number
   constructor(char: CharacterData, idx: number, x: number, opts: FighterOpts = {}) {
-    this.char = char
+    // 배우는 기술을 복사해 넣으므로 자기만의 기술표 사본을 가짐
+    this.char = char.trait === 'copy' ? { ...char, moves: { ...char.moves } } : char
+    this.trait = newTraitState(char.trait)
     this.idx = idx
     this.x = x
     this.facing = idx === 0 ? 1 : -1
     this.maxHp = Math.round(char.hp * (opts.hpMul ?? 1))
-    this.dmgMul = opts.dmgMul ?? 1
+    this.dmgMul = (opts.dmgMul ?? 1) * (char.atk ?? 1)
     this.hp = this.maxHp
   }
 
-  get grounded() { return this.y <= 0 && this.vy <= 0 }
+  get grounded() { return this.y <= this.floorY + 0.01 && this.vy <= 0 }
   get isActing() { return this.state === 'attack' }
   get inHitstun() { return this.state === 'hit' || this.state === 'knockback' || this.state === 'knockdown' }
   get neutral() { return ['idle', 'walk', 'run', 'crouch', 'jump', 'fall', 'guard'].includes(this.state) && this.stun <= 0 }
@@ -68,6 +85,7 @@ export class Fighter {
     this.hp = this.maxHp
     this.setState('idle')
     this.move = null; this.stun = 0; this.invuln = 0; this.combo = 0; this.lightChain = 0; this.chainBtns = []; this.juggles = 0
+    this.cds = {}; this.snare = 0; this.frozen = 0; this.dizzy = 0; this.blind = 0; this.floorY = 0
   }
 
   setState(s: FighterStateName) {
@@ -78,7 +96,7 @@ export class Fighter {
 
   /** 맞을 수 있는 몸통 박스 (월드 좌표, y는 지면 기준) */
   hurtbox(): Rect {
-    const h = this.state === 'crouch' || (this.state === 'guard' && this.prev.down)
+    const h = this.state === 'crouch' || (this.state === 'guard' && this.crouchHeld) || (this.state === 'attack' && !!this.move?.low)
       ? this.char.hurt.crouchH
       : this.state === 'knockdown' ? 14 : this.char.hurt.h
     return { x: this.x - this.char.hurt.w / 2, y: this.y, w: this.char.hurt.w, h }
@@ -118,7 +136,7 @@ export class Fighter {
   private tryTrait(): boolean {
     if (this.pressedAt.trait == null || !this.world || !this.grounded) return false
     const id = this.world.traitMove(this)
-    if (!id || !this.char.moves[id]) return false
+    if (!id || !this.affordable(id)) return false
     delete this.pressedAt.trait
     this.startMove(id, 'L', false)
     this.chainBtns = []
@@ -128,16 +146,19 @@ export class Fighter {
   /** 선입력된 공격 버튼들 → 버튼 토큰, 먼저 누른 순 (L H S X, ↓와 같이면 dL dH dS) */
   private bufferedBtns(inp: InputState): { k: (typeof ATTACK_KEYS)[number]; b: Btn }[] {
     const d = inp.down ? 'd' : ''
-    const tok = { light: 'L', heavy: 'H', special: 'S', super: 'X' } as const
+    const tok = { light: 'L', heavy: 'H', special: 'S', super: 'X', skill2: 'dS' } as const
     return ATTACK_KEYS.filter((k) => this.pressedAt[k] != null)
       .sort((a, b) => this.pressedAt[a]! - this.pressedAt[b]!)
-      .map((k) => ({ k, b: (k === 'super' ? 'X' : d + tok[k]) as Btn }))
+      .map((k) => ({ k, b: (k === 'super' || k === 'skill2' ? tok[k] : d + tok[k]) as Btn }))
   }
 
   /** 버튼 → 기본 기술 (↓+특 = special2, ↓만 다르게 정의된 기술이 있으면 그것) */
   private baseMove(b: Btn): MoveId {
+    // 공중에서 약·강 = 점프 공격 (서서 막아야 하는 중단)
+    if (!this.grounded && (b === 'L' || b === 'dL') && this.char.moves.jl) return 'jl'
+    if (!this.grounded && (b === 'H' || b === 'dH') && this.char.moves.jh) return 'jh'
     const map: Record<Btn, MoveId> = { L: 'light', H: 'heavy', S: 'special1', X: 'super', dL: 'light', dH: 'heavy', dS: 'special2' }
-    return map[b]
+    return this.world ? this.world.remapMove(this, map[b]) : map[b]
   }
 
   /** 커맨드 콤보 찾기: 지금까지 이어 친 버튼 + 이번 버튼 (정확히 같은 순서) */
@@ -154,7 +175,9 @@ export class Fighter {
 
   private affordable(id: MoveId | null): id is MoveId {
     const m = id ? this.char.moves[id] : null
-    return !!m && (!m.cost || this.meter >= m.cost)
+    if (!m || (m.cost && this.meter < m.cost)) return false
+    if ((this.cds[cdKey(m.id)] ?? 0) > 0) return false
+    return !this.world || this.world.canUse(this, m)
   }
 
   /** 기술 발동 시도. cancel = 이전 기술 경직을 끊고 잇는 중.
@@ -171,7 +194,7 @@ export class Fighter {
   }
 
   private chooseMove(b: Btn, cancel: boolean): MoveId | null {
-    const single = (): MoveId => (b.startsWith('d') ? this.findCombo([b]) : null) ?? this.baseMove(b)
+    const single = (): MoveId => (b.startsWith('d') && this.grounded ? this.findCombo([b]) : null) ?? this.baseMove(b)
     if (!cancel) {
       const id = single()
       if (this.affordable(id)) return id
@@ -186,7 +209,7 @@ export class Fighter {
     if ((this.hitConfirmed || whiffOk) && this.affordable(c)) return c
     // 2) 일반 캔슬: 맞혔을 때만 cancelInto 목록으로
     const base = single()
-    const okCancel = this.hitConfirmed && (m.cancelInto ?? []).includes(base) && !(base === 'light' && this.lightChain >= 2)
+    const okCancel = this.hitConfirmed && ((m.cancelInto ?? []).includes(base) || (m.cancelInto ?? []).includes(cdKey(base))) && !(base === 'light' && this.lightChain >= (this.world?.maxLightChain(this) ?? 2))
     // 3) 콤보 앞부분(예: 약 약 강의 '약 약')이면 빗나가도 이어 침
     const prefix = (this.hitConfirmed || whiffOk) && this.isComboPrefix(seq)
     return (okCancel || prefix) && this.affordable(base) ? base : null
@@ -202,7 +225,9 @@ export class Fighter {
     if (m.cost) this.meter -= m.cost
     this.lightChain = id === 'light' ? (isCancel && this.move?.id === 'light' ? this.lightChain + 1 : 1) : 0
     this.chainBtns = isCancel ? [...this.chainBtns, b] : [b]
+    if (m.cd) this.cds[cdKey(m.id)] = m.cd
     this.move = this.world ? this.world.modifyMove(this, m) : m
+    this.world?.onMoveStart(this, id)
     this.armorLeft = this.move.armor ?? 0
     this.hitWallThisMove = false
     this.moveFrame = 0
@@ -211,6 +236,13 @@ export class Fighter {
     this.setState('attack')
     if (this.grounded) this.vx = 0
     this.pendingEvents.push({ type: 'move', move: id })
+  }
+
+  /** 태그 모드: 교대해 들어오며 공격 / 어시스트 기술 (쿨타임·조건 무시) */
+  forceMove(id: MoveId) {
+    if (!this.char.moves[id]) return false
+    this.startMove(id, 'L', false)
+    return true
   }
 
   /** 히트스톱 중에도 버튼 입력은 기억해 둠 (선입력) */
@@ -224,8 +256,16 @@ export class Fighter {
   think(inp: InputState, opp: Fighter, canAct: boolean) {
     this.frame++
     this.stateFrame++
-    this.guardHeld = inp.guard
+    for (const k in this.cds) if (this.cds[k] > 0) this.cds[k]--
+    if (this.dizzy > 0) this.dizzy--
+    if (this.snare > 0) this.snare--
+    // 리테이크로 멈춤: 아무것도 못 함
+    if (this.frozen > 0) { this.frozen--; inp = emptyInput(); this.vx = 0 }
     if (!canAct) inp = emptyInput()
+    // 자동 방어: 상대 반대쪽 방향키를 누르고 있으면 막음 (↓까지 같이 누르면 앉아 막기)
+    const away = opp.x >= this.x ? inp.left : inp.right
+    this.guardHeld = inp.guard || (away && !inp.up)
+    this.crouchHeld = inp.down
     this.record(inp)
     // 방향 두 번 → 달리기
     const dirNow = inp.right ? 1 : inp.left ? -1 : 0
@@ -256,17 +296,18 @@ export class Fighter {
         this.vx *= 0.8
         if (this.grounded && this.stun <= 0) this.facing = opp.x >= this.x ? 1 : -1  // 넘어온 상대도 막도록 방향 갱신
         if (this.stun > 0) { this.stun--; break }
-        if (!inp.guard || !this.grounded) this.setState('idle')
+        if (!this.guardHeld || !this.grounded || (!this.threat && !inp.guard)) this.setState('idle')
         else if (this.tryStartMove(inp) || this.tryTrait()) break
         break
       case 'attack': {
         const m = this.move!
         this.moveFrame++
-        if (m.id.startsWith('trait') && this.moveFrame === m.startup) this.pendingTrait = m.id
+        if (m.effect && this.moveFrame === m.startup) this.pendingEffect = { effect: m.effect, move: m }
+        if (m.projectile && this.moveFrame === m.startup) this.pendingShot = m
         if (m.dash && this.moveFrame >= m.startup && this.moveFrame < m.startup + m.active) this.vx = this.facing * m.dash
         else if (this.grounded) this.vx *= 0.7
         // 콤보 잇기: 판정이 나온 뒤부터 (맞히면 일반 캔슬, 커맨드 콤보는 빗나가도 OK)
-        if (this.moveFrame >= m.startup && this.tryStartMove(inp, { cancel: true })) break
+        if (this.moveFrame >= m.startup && (this.tryStartMove(inp, { cancel: true }) || (this.hitConfirmed && (m.cancelInto ?? []).includes('trait') && this.tryTrait()))) break
         if (this.moveFrame >= m.startup + m.active + m.recovery) { this.move = null; this.setState(this.grounded ? 'idle' : 'fall') }
         break
       }
@@ -276,19 +317,19 @@ export class Fighter {
           this.facing = opp.x >= this.x ? 1 : -1
           if (this.tryStartMove(inp)) break
           if (this.tryTrait()) break
-          if (inp.guard) { this.setState('guard'); this.vx = 0; break }
-          if (inp.up) {
+          if (this.guardHeld && (this.threat || inp.guard)) { this.setState('guard'); this.vx = 0; break }
+          if (inp.up && this.snare <= 0) {
             this.vy = this.char.jumpV
             this.vx = dirNow * this.char.airSpeed
-            this.y = 0.01
+            this.y = this.floorY + 0.01
             this.setState('jump')
             this.pendingJump = true
             break
           }
           if (inp.down) { this.setState('crouch'); this.vx = 0; break }
-          if (dirNow) {
+          if (dirNow && this.snare <= 0) {
             const back = dirNow !== this.facing
-            const sp = this.running && !back ? this.char.runSpeed : this.char.walkSpeed * (back ? 0.85 : 1)
+            const sp = (this.running && !back ? this.char.runSpeed : this.char.walkSpeed * (back ? 0.85 : 1)) * (this.world?.speedMul(this) ?? 1)
             this.vx = dirNow * sp
             this.setState(this.running && !back ? 'run' : 'walk')
           } else { this.vx = 0; this.setState('idle') }
@@ -307,16 +348,18 @@ export class Fighter {
 
   /** 물리 이동 */
   physics() {
-    const wasAir = this.y > 0
+    const floor = this.floorY
+    const wasAir = this.y > floor + 0.01
     this.x += this.vx
-    if (this.y > 0 || this.vy > 0) {
+    if (this.y > floor + 0.01 || this.vy > 0) {
       this.vy -= this.char.gravity
       this.y += this.vy
-      if (this.y <= 0) {
-        this.y = 0; this.vy = 0
+      if (this.y <= floor) {
+        this.y = floor; this.vy = 0
         if (wasAir) this.pendingLand = true
         if (this.state === 'jump' || this.state === 'fall') { this.setState('idle'); this.vx = 0 }
-        if (this.state === 'attack' && this.move && this.moveFrame < this.move.startup + this.move.active) { /* 공중 공격 착지 */ }
+        // 점프 공격 중 착지 → 짧은 착지 경직 후 끝
+        if (this.state === 'attack' && this.move && (this.move.id === 'jl' || this.move.id === 'jh')) { this.move = null; this.setState('idle'); this.vx = 0; this.stun = 0 }
       }
     }
     this.x = Math.max(WALL, Math.min(STAGE_W - WALL, this.x))

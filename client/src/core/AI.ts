@@ -3,7 +3,7 @@
 import type { Fighter } from './Fighter'
 import type { InputState, Btn } from './types'
 import { emptyInput } from './types'
-import { aiWantsTrait } from './Traits'
+import { aiSkill } from './Traits'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
@@ -60,7 +60,7 @@ export class SimpleAI {
     if (me.inHitstun) this.queue = []
     // 3-b) 내 기술이 맞았으면 이어서 캔슬
     if (!this.queue.length && me.state === 'attack' && me.hitConfirmed && !this.press && r() < this.p.combo / 3) {
-      const next = me.move?.id === 'light' ? (r() < 0.5 ? 'light' : 'heavy') : me.meter >= 25 ? 'special' : null
+      const next = me.move?.id === 'light' ? (r() < 0.5 ? 'light' : 'heavy') : r() < 0.5 ? 'special' : 'trait'
       if (next) this.tap(next as keyof InputState)
     }
 
@@ -73,11 +73,14 @@ export class SimpleAI {
       // 붙어 있을 때: 먼저 치거나(공격성), 미리 막거나(가드 확률), 빠지거나
       else this.plan = r() < this.p.aggro ? 'attack' : r() < this.p.guard ? 'guard' : 'retreat'
       this.planT = 18 + Math.floor(r() * 24)
-      // 직업 고유 특성 (잘하는 AI일수록 자주 씀)
-      if (r() < 0.25 + this.p.special && aiWantsTrait(me, opp, r)) { this.tap('trait'); this.plan = 'wait' }
+      // 태그 모드: 체력이 낮으면 교대, 가끔 어시스트
+      if (me.team?.canSwap && me.hp / me.maxHp < 0.35 && me.team.partnerHp > 0.5 && r() < 0.3 + this.p.combo * 0.3) { this.tap('swap'); return inp }
+      if (me.team?.canAssist && dist < 150 && r() < 0.08 + this.p.special * 0.2) this.tap('assist')
+      // 캐릭터별 스킬 판단 (잘하는 AI일수록 자주 씀)
+      const sk = r() < 0.1 + this.p.special * 0.4 ? aiSkill(me, opp, r) : null
+      if (sk) { this.tap(sk); this.plan = sk === 'trait' ? 'wait' : this.plan }
       else if (this.plan === 'attack') {
         if (me.meter >= 100 && r() < this.p.special) this.tap('super')
-        else if (me.meter >= 25 && r() < this.p.special / 2) this.tap('special')
         else if (r() < this.p.combo * 0.45) {
           const ok = me.char.combos.filter((c) => (me.char.moves[c.move]?.cost ?? 0) <= me.meter)
           const c = ok[Math.floor(r() * ok.length)]
@@ -85,13 +88,13 @@ export class SimpleAI {
         }
         else this.tap(r() < 0.6 ? 'light' : 'heavy')
       }
-      if (this.plan === 'approach' && dist > 110 && me.meter >= 25 && r() < this.p.special / 3) { this.tap('special'); this.downWithSpecial = true }
     }
 
     switch (this.plan) {
       case 'approach': inp[toward] = true; if (dist < 40) this.plan = 'wait'; break
       case 'retreat': inp[away] = true; break
-      case 'guard': inp.guard = true; break
+      // 방어 = 상대 반대쪽 누르기 (하단기는 잘하는 AI만 앉아서)
+      case 'guard': inp[away] = true; if (opp.move?.low && this.p.guard > 0.7) inp.down = true; break
       case 'jumpIn': inp.up = true; inp[toward] = true; this.plan = 'wait'; break
       default: break
     }

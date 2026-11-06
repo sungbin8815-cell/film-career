@@ -18,12 +18,16 @@ export interface InputState {
   special: boolean
   guard: boolean
   super: boolean
-  trait: boolean           // 직업 고유 버튼
+  trait: boolean           // E: 직업 고유 버튼
+  skill2: boolean          // W: 두 번째 스킬 (↓+Q와 같음)
+  swap: boolean            // 태그 모드: 교체
+  assist: boolean          // 태그 모드: 어시스트 호출
+  /** 직접 방어(테스트·예전 입력용). 실제 조작은 상대 반대 방향을 누르면 자동 방어 */
 }
 
 export const emptyInput = (): InputState => ({
   left: false, right: false, up: false, down: false,
-  light: false, heavy: false, special: false, guard: false, super: false, trait: false,
+  light: false, heavy: false, special: false, guard: false, super: false, trait: false, skill2: false, swap: false, assist: false,
 })
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -68,7 +72,15 @@ export interface MoveData {
   anim?: string            // 쓸 애니메이션 (없으면 id와 같은 이름)
   rank?: number            // 스테이지 모드에서 쓸 수 있게 되는 직급 (0 막내 ~ 4 감독, 없으면 0)
   desc?: string            // 기술표 설명
-  armor?: number           // 슈퍼아머: 이만큼 맞아도 경직 없이 계속 (조명 특성)
+  armor?: number           // 슈퍼아머: 이만큼 맞아도 경직 없이 계속
+  low?: boolean            // 하단: 앉아서 막아야 함
+  overhead?: boolean       // 중단(점프 공격): 서서 막아야 함
+  effect?: string          // 판정 순간 발동하는 특수 효과 (core/Traits.ts)
+  cd?: number              // 쿨타임 (프레임). Q·W·E 스킬
+  expose?: number          // 조명감독: 맞힐 때 쌓이는 노출
+  crit?: boolean           // 촬영감독 망원 초점 크리티컬
+  pull?: boolean           // 맞으면 내 쪽으로 끌려옴
+  copyOf?: string          // 배우가 따라 한 기술의 원래 캐릭터
 }
 
 export interface ProjectileSpec {
@@ -87,6 +99,10 @@ export interface ProjectileSpec {
   kbX: number
   kbY?: number
   gy?: number              // 중력 (포물선으로 날아가는 투사체)
+  pull?: boolean           // 맞으면 쏜 사람 쪽으로 끌려옴
+  blind?: number           // 맞으면 이 프레임 동안 판정이 작아짐 (분장 파우더)
+  expose?: number          // 조명 노출
+  crit?: boolean
 }
 
 export interface CharacterData {
@@ -102,6 +118,10 @@ export interface CharacterData {
   /** 캐릭터 선택 화면 능력치 1~5 */
   stats: { power: number; speed: number; reach: number }
   hp: number
+  /** 태그 모드 어시스트로 쓰는 기술 (기본 special1) */
+  assist?: MoveId
+  /** 밸런스용 공격력 배율 (기본 1) */
+  atk?: number
   walkSpeed: number
   runSpeed: number
   jumpV: number
@@ -122,7 +142,7 @@ export type FighterStateName =
 
 /** 화면 연출용 이벤트 (로직 → 그래픽·사운드) */
 export type MatchEvent =
-  | { type: 'hit'; x: number; y: number; attacker: number; damage: number; combo: number; heavy: boolean; finisher: boolean; launch: boolean; counter: boolean; moveName: string }
+  | { type: 'hit'; x: number; y: number; attacker: number; damage: number; combo: number; heavy: boolean; finisher: boolean; launch: boolean; counter: boolean; crit?: boolean; moveName: string; sfx?: string }
   | { type: 'block'; x: number; y: number; attacker: number }
   | { type: 'whiff'; fighter: number; move: MoveId }
   | { type: 'move'; fighter: number; move: MoveId; name: string; combo: boolean; voice?: string; sfx?: string; afterimage?: boolean }
@@ -136,3 +156,5 @@ export type MatchEvent =
   | { type: 'jump'; fighter: number }
   | { type: 'trait'; fighter: number; kind: string; x: number; value?: number }
   | { type: 'armor'; fighter: number; x: number; y: number }
+  | { type: 'fx'; kind: string; x: number; y: number; fighter: number; value?: number; text?: string }
+  | { type: 'tag'; team: number; kind: 'swap' | 'assist' | 'down' | 'in'; name: string }

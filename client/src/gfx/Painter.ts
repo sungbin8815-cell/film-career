@@ -513,6 +513,24 @@ export const KITS: Record<string, Kit> = {
   },
 }
 
+// 배우: 대본 + 소품 칼
+KITS.actor = {
+  small(g, x, y) {
+    g.rect(x - 4, y - 5, 9, 11, '#f4f1ea'); g.rect(x - 4, y - 5, 2, 11, '#7f1d1d')
+    for (let k = 0; k < 3; k++) g.rect(x - 1, y - 3 + k * 3, 5, 1, '#9ca3af')
+  },
+  long(g, top, end) {
+    const grip = lerp(top, end, 0.18)
+    g.limb(lerp(top, end, -0.12), grip, 2, '#3f2a1c')
+    const gx = Math.round(grip[0]), gy = Math.round(grip[1])
+    const dx = end[0] - top[0], dy = end[1] - top[1], L = Math.hypot(dx, dy) || 1
+    g.line([gx - (dy / L) * 4, gy + (dx / L) * 4], [gx + (dy / L) * 4, gy - (dx / L) * 4], '#d4af37')   // 코등이
+    g.limb(grip, lerp(top, end, 1.25), 2, '#e5e7eb')
+    g.line(grip, lerp(top, end, 1.2), '#ffffff', 2)
+  },
+  fx(g, x, y) { for (const [dx, dy] of [[0, -6], [0, 6], [-6, 0], [6, 0]]) g.line([x, y], [x + dx, y + dy], '#fde68a', 2); g.disc(x, y, 1, '#ffffff'); g.set(x + 5, y - 5, '#ffffff', 2); g.set(x - 4, y + 4, '#5eead4', 2) },
+}
+
 /** 투사체 그림 (80×76 칸, 바닥 기준 아래 가운데) */
 export function paintProjectile(kind: string): HTMLCanvasElement {
   if (kind === 'lightstand') return paintLightStandFalling()
@@ -540,6 +558,11 @@ export function paintProjectile(kind: string): HTMLCanvasElement {
       break
     case 'spray': // 헤어스프레이 구름
       for (let k = 0; k < 40; k++) g.set(cx + Math.round(Math.cos(k * 2.4) * (k % 9)), cy + Math.round(Math.sin(k * 2.4) * (k % 6)), k % 3 ? '#fbcfe8' : '#ffffff', 2)
+      break
+    case 'snipe': // 망원 스나이프: 카메라 섬광 탄
+      for (let x = -12; x <= 6; x++) g.set(cx + x, cy, x > 2 ? '#ffffff' : '#93e1ff', 2)
+      for (let x = -8; x <= 4; x++) { g.set(cx + x, cy - 1, '#bae6fd', 2); g.set(cx + x, cy + 1, '#bae6fd', 2) }
+      g.disc(cx + 6, cy, 3, '#ffffff'); g.disc(cx + 6, cy, 1, '#fef9c3')
       break
     case 'beam': // 풀파워 조명 빛기둥
       for (let y = 0; y < 66; y++) for (let x = -7; x <= 7; x++) if (Math.abs(x) < 7 - (y % 7 === 0 ? 1 : 0)) g.set(cx + x, 74 - y - 8, Math.abs(x) < 3 ? '#ffffff' : '#fef08a', 2)

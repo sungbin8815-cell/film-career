@@ -26,10 +26,15 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .ab b { font-size: 16px; line-height: 1; }
 .ab small { display: none; }
 .ab.down { transform: translateY(3px); box-shadow: 0 1px 0 var(--line), inset 0 -2px 0 rgba(0,0,0,0.3); filter: brightness(1.25); }
-.b-light { background: #e0566f; } .b-heavy { background: #c2410c; } .b-special { background: #2563eb; opacity: 0.55; }
+.b-light { background: #e0566f; } .b-heavy { background: #c2410c; } .b-special { background: #2563eb; opacity: 0.55; border-radius: 14px; }
+.ab i { position: absolute; margin: -30px 0 0 -30px; font-style: normal; font-size: 10px; color: #fff8e7; opacity: 0.7; }
+.ab { position: relative; } .ab.cool { opacity: 0.35 !important; filter: grayscale(0.6); }
+.leftpad { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.tagbtns { display: none; gap: 8px; } #pad.tag .tagbtns { display: flex; }
+.tagbtns .ab { width: 54px; height: 34px; border-radius: 12px; } .b-swap { background: #7c3aed; } .b-assist { background: #0891b2; } .tagbtns b { font-size: 13px; }
 .b-guard { background: #475569; border-radius: 14px; } .b-super { background: #3b3355; opacity: 0.55; border-radius: 14px; }
 .b-trait { background: #0f766e; border-radius: 14px; opacity: 0.6; } .b-trait.ready { opacity: 1; background: #14b8a6; color: #04201d; } .b-trait.long b { font-size: 13px; }
-.b-special.ready { opacity: 1; } .b-super.ready { opacity: 1; background: #eab308; color: #1a1300; animation: glow 0.6s infinite alternate; }
+.b-special.ready { opacity: 1; } .b-w { background: #1d4ed8; } .b-super.ready { opacity: 1; background: #eab308; color: #1a1300; animation: glow 0.6s infinite alternate; }
 @keyframes glow { to { box-shadow: 0 4px 0 var(--line), 0 0 14px #facc15; } }
 /* PC(마우스 + 넓은 화면)는 키보드로 → 터치 콘솔 숨김 */
 @media (min-width: 1000px) and (hover: hover) and (pointer: fine) { #pad.on { display: none; } }
