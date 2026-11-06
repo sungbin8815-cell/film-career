@@ -35,7 +35,7 @@ interface Option {
 /** 선호 거리 (캐릭터별 플레이 스타일) */
 function prefDist(me: Fighter): number {
   switch (me.char.id) {
-    case 'dp': return [70, 150, 330][me.trait.lens] ?? 150
+    case 'dp': return [70, 140, 380][me.trait.lens] ?? 140
     case 'director': return 210
     case 'sound': return 170
     case 'gaffer': return 270
@@ -181,7 +181,9 @@ export class SimpleAI {
 
     // 3) 평소 판단
     if (frame >= this.nextThink && me.neutral && this.guardT <= 0 && !this.script.length) {
-      const pref = prefDist(me)
+      // 원거리 기술이 모두 쿨타임이면 근접 거리로 다가감 (원거리는 한 방, 그다음엔 접근)
+      const rangedReady = Object.values(me.char.moves).some((m) => m.ranged && !m.cost && (me.cds[cdKey(m.id)] ?? 0) <= 0 && (!me.world || me.world.canUse(me, m)))
+      const pref = rangedReady ? prefDist(me) : Math.min(prefDist(me), 75)
       this.nextThink = frame + this.p.think + Math.floor(r() * this.p.think)
       // 태그 모드
       if (me.team?.canSwap && me.hp / me.maxHp < 0.35 && me.team.partnerHp > 0.5 && r() < 0.3 + this.p.combo * 0.3) { inp.swap = true; return inp }
@@ -195,6 +197,8 @@ export class SimpleAI {
       const pick = this.pickOption(me, opp, dist, pref)
       if (pick && r() < this.p.aggro + 0.15) this.script = [...pick.frames]
       else {
+        // 망원 촬영: 멀리 있으면 가만히 서서 초점 모으기
+        if (me.char.id === 'dp' && me.trait.lens === 2 && dist > 160 && me.trait.focus < 100) { this.moveDir = null; this.moveT = 0; return inp }
         // 거리 조절: 선호 거리로
         this.moveT = 14 + Math.floor(r() * 20)
         if (dist > pref + 50) this.moveDir = 'fwd'
@@ -271,8 +275,10 @@ export class SimpleAI {
     const t = me.trait
     switch (me.char.id) {
       case 'dp':
-        if (e === 'lensTele') return dist > 230 && t.lens !== 2 ? 6 : 0
-        if (e === 'lensWide') return dist < 110 && t.lens !== 0 ? 5 : 0
+        // 망원: 풀초점이 될 때까지 원거리를 아낌 (초점 안 맞은 사격은 약함)
+        if (t.lens === 2 && m.ranged) return t.focus >= 100 ? 4 : 0.03
+        if (e === 'lensTele') return dist > 340 && t.lens !== 2 ? 3 : 0
+        if (e === 'lensWide') return (dist < 110 || (t.lens === 2 && dist < 180)) && t.lens !== 0 ? 6 : 0
         if (e === 'lensStd') return dist >= 110 && dist <= 230 && t.lens !== 1 ? 3 : 0
         if (e === 'lens') return 0
         return 1

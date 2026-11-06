@@ -17,6 +17,8 @@ const out: string[] = [
   '> - 이동: →→ 대시 · ←← 백스텝(잠깐 무적) · 공중에서 →→ 공중 대시. 방어는 상대 반대 방향(하단은 ↓까지, 공중 공격은 서서)',
   '> - 커맨드: 표의 순서대로 입력 (예: `↓ → C`, `백스텝 C`, `대시 D`). 버튼 사이 간격이 넉넉해서 천천히 눌러도 됩니다',
   '> - 캔슬 순서: A → B → C·D·커맨드 → R. 맞히면 위 단계로 이어서 낼 수 있습니다',
+  '> - **원거리 제약**: 투사체·레이저·사거리 200 이상 기술은 최소 쿨타임 1.7초 + 경직 +8 (헛치면 반격당함). 망원 촬영은 가만히 서서 풀초점이 되어야 큰 한 방(×2.2), 초점이 안 맞으면 약한 견제 사격',
+  '> - **무게**: 히트스톱 = 피해 × 무게. B는 무겁고 A는 가벼움, 사운드 붐대는 가장 묵직함(느린 대신 세고 멀리)',
   '> - 태그 모드(2대2): 교체(키보드 Q) · 어시스트(키보드 E)',
   '> - **발동**: 누르고 나서 판정이 나오기까지 프레임 (60프레임 = 1초) · **경직**: 끝난 뒤 못 움직이는 프레임 · **쿨**: 초 · **배움**: 스테이지 모드 직급',
   '',
@@ -29,7 +31,7 @@ function tags(m: MoveData) {
   const reach = p ? (p.atTarget ? '상대 위치' : `사거리 ~${Math.round(p.offsetX + Math.abs(p.vx) * p.life)}`) : `사거리 ${m.hitbox.x + m.hitbox.w}${m.hold ? `→${Math.round(m.hitbox.x + m.hitbox.w + m.hold.max * m.hold.reach)} (모으기)` : ''}`
   return [reach, p ? '투사체' : '', p?.pierce ? '관통' : '', m.multiHit ? '연타' : '', m.kbY || m.lastHitKbY || p?.kbY ? '띄우기' : '', m.wallBounce || p?.wallBounce ? '벽 튕김' : '', m.groundBounce ? '바닥 튕김' : '',
     m.dash ? '돌진' : '', m.lift ? '뛰어오름' : '', m.armor ? `슈퍼아머 ${m.armor}` : '', m.low ? '하단' : '', m.overhead ? '중단' : '', m.expose || p?.expose ? `노출 +${m.expose ?? p?.expose}` : '',
-    m.debuff?.bleed || p?.debuff?.bleed ? '출혈' : '', m.debuff?.slow || p?.debuff?.slow ? '노화(느려짐)' : '', m.debuff?.blind || p?.debuff?.blind ? '파우더(시야)' : '', m.pull || p?.pull ? '끌어오기' : '', m.ult ? '궁극기 연출' : ''].filter(Boolean).join(', ')
+    m.debuff?.bleed || p?.debuff?.bleed ? '출혈' : '', m.ranged ? '원거리(연사 불가)' : '', (m.weight ?? 1) >= 1.4 ? '묵직(히트스톱 큼)' : '', m.debuff?.slow || p?.debuff?.slow ? '노화(느려짐)' : '', m.debuff?.blind || p?.debuff?.blind ? '파우더(시야)' : '', m.pull || p?.pull ? '끌어오기' : '', m.ult ? '궁극기 연출' : ''].filter(Boolean).join(', ')
 }
 
 function row(c: CharacterData, id: string) {

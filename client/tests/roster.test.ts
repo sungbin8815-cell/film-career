@@ -65,7 +65,11 @@ describe('캐릭터 데이터', () => {
           const hold: Partial<InputState> = prev === 'u' ? { up: true } : prev === 'd' ? { down: true } : prev === 'f' ? { right: true } : prev === 'b' ? { left: true } : {}
           frames.push({ ...hold, [keyOf[t as keyof typeof keyOf]]: true })
           // 체인: 앞 기술이 끝날 무렵까지 기다림 (헛쳐도 이어짐)
-          if (k.seq[i + 1] && k.seq[i + 1] in keyOf) frames.push(...Array(16).fill({}))
+          if (k.seq[i + 1] && k.seq[i + 1] in keyOf) {
+            // 체인: 앞 기술 판정이 끝날 무렵까지 기다림 (무거운 기술은 더 길게)
+            const pm = c.moves[`${t}_n`]
+            frames.push(...Array(Math.max(16, pm ? pm.startup + pm.active - 2 : 16)).fill({}))
+          }
         } else if (t === 'f') frames.push({ right: true })
         else if (t === 'b') frames.push({ left: true })
         else if (t === 'd') frames.push(k.seq[i - 1] === 'd' ? {} : { down: true }, ...(k.seq[i - 1] === 'd' ? [{ down: true }] : []))

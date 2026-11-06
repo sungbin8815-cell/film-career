@@ -181,7 +181,7 @@ describe('배우: 관찰 → 복사, 배역 전환', () => {
   it('상대 직업기를 두 번 보면 C 칸에 복사되고, C를 누르면 그 기술이 나간다', () => {
     const m = fight('actor', 'gaffer'); const [a, g] = m.fighters
     g.x = a.x + 300
-    run(m, {}, 200, { 0: { special: true }, 110: { special: true } })
+    run(m, {}, 260, { 0: { special: true }, 170: { special: true } })
     expect(a.char.moves.copy1?.copyOf).toBe('gaffer')
     expect(m.world.remapMove(a, 'C_n')).toBe('copy1')
     const ev = run(m, { 0: { special: true } }, 30)
@@ -197,5 +197,39 @@ describe('배우: 관찰 → 복사, 배역 전환', () => {
     run(m, { 0: { trait: true } }, 30)
     expect(a.trait.role).toBe(1)
     expect(m.world.remapMove(a, 'B_n')).toBe('B_n~sageuk')
+  })
+})
+
+describe('원거리 제약·무게', () => {
+  it('모든 원거리 기술은 최소 쿨타임이 있어 연사할 수 없다', async () => {
+    const { CHARACTERS, RANGED_CD } = await import('../src/config/characters')
+    for (const c of CHARACTERS) for (const m of Object.values(c.moves)) {
+      if (m.ult || !(m.projectile || (m.hitbox.x + m.hitbox.w >= 200 && m.vfx !== 'pole'))) continue
+      expect(m.cd ?? 0, `${c.id}.${m.id}`).toBeGreaterThanOrEqual(RANGED_CD)
+    }
+  })
+  it('망원 저격: 초점이 안 맞으면 약하고, 가만히 서서 풀초점이면 크게 한 방', () => {
+    const shot = (wait: number) => {
+      const m = fight('dp'); const [f, d] = m.fighters
+      f.trait.lens = 2; f.trait.focus = 0
+      run(m, {}, wait)
+      d.x = f.x + 300
+      const hp = d.hp
+      run(m, { 0: { special: true } }, 60)
+      return hp - d.hp
+    }
+    const weak = shot(5), strong = shot(100)
+    expect(weak).toBeGreaterThan(0)
+    expect(strong).toBeGreaterThan(weak * 4)
+  })
+  it('붐대는 느린 대신 세고, 히트스톱이 더 길다', () => {
+    const hs = (id: string, inp: Partial<InputState>) => {
+      const m = fight(id); const [a, d] = m.fighters
+      a.x = d.x - 60
+      let stop = 0
+      for (let i = 0; i < 40; i++) { const ev = m.step([i === 0 ? { ...emptyInput(), ...inp } : emptyInput(), emptyInput()]); if (ev.some((e) => e.type === 'hit')) stop = Math.max(stop, m.hitstop) }
+      return stop
+    }
+    expect(hs('sound', { heavy: true })).toBeGreaterThan(hs('makeup', { heavy: true }))
   })
 })

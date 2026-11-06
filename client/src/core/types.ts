@@ -113,6 +113,10 @@ export interface MoveData {
   air?: boolean
   /** 콤보 레벨 (캔슬 순서). 없으면 버튼으로 정함: A1 B2 C3 D3 커맨드3 R5 */
   lvl?: number
+  /** 무게: 히트스톱·흔들림 배율 (붐대 같은 무거운 장비는 크게) */
+  weight?: number
+  /** 원거리 기술 (투사체·레이저·사거리 200 이상): 쿨타임·경직 제약 */
+  ranged?: boolean
 }
 
 export interface ProjectileSpec {

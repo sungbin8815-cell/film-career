@@ -297,7 +297,7 @@ export class Match {
     this.resolve(att, def, { chip: 0, blockstun: 0, meterGain: 8, ...d, id: 'trait' }, opts.fromX ?? att.x, opts.unblockable)
   }
 
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce' | 'ult'>> & { id?: string; blind?: number; moveId?: string }, fromX: number, unblockable = false) {
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce' | 'ult' | 'weight'>> & { id?: string; blind?: number; moveId?: string }, fromX: number, unblockable = false) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
@@ -315,7 +315,7 @@ export class Match {
       def.vx = dir * d.kbX * 0.7
       def.meter = Math.min(METER_MAX, def.meter + 3)
       att.meter = Math.min(METER_MAX, att.meter + Math.round(d.meterGain / 2))
-      this.hitstop = 5
+      this.hitstop = Math.round(Math.min(12, (4 + d.damage / 14) * (d.weight ?? 1)))
       this.events.push({ type: 'block', x: hx, y: hy, attacker: att.idx })
       return
     }
@@ -360,10 +360,12 @@ export class Match {
       // 끌어오기(줌인·백라이트): 내 쪽으로
       def.vx = (d.pull ? -Math.sign(def.x - att.x) || -dir : dir) * d.kbX
     }
-    const heavy = d.damage >= 80 || !!kbY
+    const heavy = d.damage >= 80 || !!kbY || (d.weight ?? 1) >= 1.4
     const finisher = !!d.finisher && (!d.multiHit || lastOfMulti)
     // 히트스톱은 기술 무게(피해)에 비례
-    this.hitstop = Math.round(Math.min(16, 4 + d.damage / 11)) + (finisher ? 4 : 0) + (counter ? 5 : 0) + (d.crit ? 8 : 0)
+    // 히트스톱 = 피해 × 무게 (붐대처럼 무거운 장비는 확 멈춤)
+    const w = d.weight ?? 1
+    this.hitstop = Math.round(Math.min(22, (5 + d.damage / 8) * w)) + (finisher ? 4 : 0) + (counter ? 5 : 0) + (d.crit ? 10 : 0)
     this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: heavy || !!d.crit, finisher: finisher || !!d.crit, launch, counter, crit: !!d.crit, moveName: d.name, sfx: d.sfx, move: d.moveId ?? d.id })
     if (def.hp <= 0) this.ko(att.idx)
   }

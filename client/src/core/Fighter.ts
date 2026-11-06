@@ -193,7 +193,9 @@ export class Fighter {
       while (hi >= 0) {
         const h = this.history[hi]
         hi--
-        if (lastF - h.f > CMD_GAP || startF - h.f > CMD_TOTAL) return false
+        // 버튼→버튼(체인)은 지금 기술의 발동·판정 시간만큼 간격을 늘림 (느리고 무거운 기술도 이어짐)
+        const slow = this.move && isButton(want) ? this.move.startup + this.move.active : 0
+        if (lastF - h.f > CMD_GAP + slow || startF - h.f > CMD_TOTAL + slow) return false
         if (h.t === want) { found = true; lastF = h.f; break }
         // 버튼은 건너뛸 수 없음 (체인 순서가 중요), 방향·동작은 다른 게 끼어 있어도 OK
         if (isButton(h.t) && isButton(want)) return false

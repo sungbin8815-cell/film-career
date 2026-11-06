@@ -301,7 +301,9 @@ export class TraitWorld {
     if (f.char.trait === 'lens' && t.lens === 2) {
       // 망원: 근접기는 약함, 원거리는 초점이 가득 차면 크리티컬
       if (!m.projectile && m.hitbox.x + m.hitbox.w < 120) edit((x) => scale(x, 0.7))
-      if (t.focus >= 100 && (m.projectile || m.hitbox.x + m.hitbox.w >= 200)) edit((x) => { scale(x, 1.8); x.hitstun += 8; x.kbX *= 1.6; x.kbY = Math.max(x.kbY ?? 0, 5); x.crit = true; x.wallBounce = true; if (x.projectile) { x.projectile.crit = true; x.projectile.kbX *= 1.6; x.projectile.kbY = 5; x.projectile.wallBounce = true } })
+      // 망원 원거리: 초점이 안 맞으면 약한 견제 사격, 가만히 서서 풀초점이 되어야 크게 한 방
+      if (m.ranged && t.focus < 100) edit((x) => { scale(x, 0.35); x.hitstun = Math.round(x.hitstun * 0.6); x.kbX *= 0.5; x.kbY = undefined; x.wallBounce = false; x.name = `${x.name} (초점 안 맞음)`; if (x.projectile) { x.projectile.kbX *= 0.5; x.projectile.kbY = undefined; x.projectile.hitstun = Math.round(x.projectile.hitstun * 0.6) } })
+      if (t.focus >= 100 && (m.projectile || m.hitbox.x + m.hitbox.w >= 200)) edit((x) => { scale(x, 2.2); x.hitstun += 10; x.kbX *= 1.6; x.kbY = Math.max(x.kbY ?? 0, 5); x.crit = true; x.wallBounce = true; if (x.projectile) { x.projectile.crit = true; x.projectile.kbX *= 1.6; x.projectile.kbY = 5; x.projectile.wallBounce = true } })
     }
     // 미술: 구조물이 많을수록 강해짐, 애플박스·발판 위에서 +10%
     if (f.char.trait === 'wall') {
@@ -418,7 +420,7 @@ export class TraitWorld {
       if (f.blind > 0) f.blind--
       if (f.bleed > 0) { f.bleed--; if (f.bleed % 20 === 0 && f.hp > 1) { f.hp = Math.max(1, f.hp - 3); this.evt(f.idx, 'bleedTick', f.x, 3) } }
       if (f.char.trait === 'lens') {
-        if (t.lens === 2 && f.grounded && (f.state === 'idle' || f.state === 'crouch' || f.state === 'guard')) t.focus = Math.min(100, t.focus + 1.6)
+        if (t.lens === 2 && f.grounded && (f.state === 'idle' || f.state === 'crouch' || f.state === 'guard')) t.focus = Math.min(100, t.focus + 1.2)
         else if (['walk', 'run', 'dash', 'jump'].includes(f.state)) t.focus = Math.max(0, t.focus - 4)
         if (t.lens !== 2) t.focus = 0
       }

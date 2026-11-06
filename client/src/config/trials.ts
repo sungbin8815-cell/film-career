@@ -14,9 +14,9 @@ export const TRIALS: Record<string, Trial[]> = {
     { name: '하단 → 리테이크', level: '어려움', moves: ['A_n', 'A_d', 'R'], hint: 'A, ↓A, 맞는 순간 R (궁극기는 콤보 마무리로 이어짐)' },
   ],
   sound: [
-    { name: '붐 툭 → 붐 스윙', level: '쉬움', moves: ['A_n', 'B_n'] },
-    { name: '붐 삼단', level: '보통', moves: ['A_n', 'A_n', 'boom_triple'] },
-    { name: '연타 → 동시녹음 풀레벨', level: '어려움', moves: ['A_n', 'A_n', 'R'] },
+    { name: '붐 툭 → 바닥 쓸기', level: '쉬움', moves: ['A_n', 'B_d'], hint: '붐대는 느리고 무거워요. A가 맞는 순간 ↓B' },
+    { name: '붐 툭 → 저음 파동', level: '보통', moves: ['A_n', 'bass_wave'] },
+    { name: '윈드밀 2연 회전', level: '어려움', moves: ['A_n', 'boom_windmill', 'boom_windmill'] },
   ],
   gaffer: [
     { name: '잽 → 앞 강공격', level: '쉬움', moves: ['A_n', 'B_f'] },

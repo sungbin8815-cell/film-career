@@ -28,10 +28,32 @@ const air = { air: true, overhead: true } as const
 const TITLES = (head: string): CharacterData['titles'] => ['막내', '서드', '세컨드', '퍼스트', head]
 
 /** 기술표 정리: id 채우기, 스테이지 모드 직급(rank) 배분 */
-function build(moves: Record<MoveId, MoveData>, commands: Command[]): Record<MoveId, MoveData> {
+/** 원거리 제약: 계속 쏠 수 없게 최소 쿨타임 + 헛치면 반격당하게 경직 */
+export const RANGED_CD = 100
+export const RANGED_REACH = 200
+const RANGED_RECOVERY = 8
+
+function build(moves: Record<MoveId, MoveData>, commands: Command[], opts: { heavy?: boolean } = {}): Record<MoveId, MoveData> {
   const cmdIds = new Set(commands.map((c) => c.move))
   for (const [id, m] of Object.entries(moves)) {
     m.id = id
+    // 무거운 장비(사운드 붐대): 느리게 나가는 대신 세고 멀리, 히트스톱 크게
+    if (opts.heavy && m.vfx === 'pole') {
+      m.startup = Math.round(m.startup * 1.4) + 2
+      m.recovery += 6
+      m.damage = Math.round(m.damage * 1.35)
+      m.chip = Math.round(m.chip * 1.35)
+      m.kbX *= 1.2
+      m.weight = 1.6
+    }
+    m.weight ??= id.startsWith('B') ? 1.15 : id.startsWith('A') ? 0.85 : 1
+    // 원거리 기술: 투사체·레이저·사거리 200 이상 (붐대처럼 몸에 붙은 장비는 제외, 궁극기 제외)
+    const far = !!m.projectile || (m.hitbox.x + m.hitbox.w >= RANGED_REACH && m.vfx !== 'pole')
+    if (far && !m.ult && (m.damage > 0 || !!m.projectile)) {
+      m.ranged = true
+      m.cd = Math.max(m.cd ?? 0, RANGED_CD)
+      m.recovery += RANGED_RECOVERY
+    }
     if (cmdIds.has(id)) m.combo = true
     if (m.rank != null) continue
     const base = id.split('~')[0]
@@ -62,7 +84,7 @@ export const DP: CharacterData = {
   id: 'dp', name: '촬영감독', nameEn: 'DP', color: '#3b82f6', dept: '촬영부', titles: TITLES('촬영감독'), trait: 'lens',
   desc: '렌즈를 갈아 끼우면 다른 사람이 된다. 광각은 코앞 러시, 망원은 화면 끝 저격.',
   style: '모드 전환형 · 근거리↔원거리', difficulty: 2, showcase: ['C_n~tele', 'C_n~wide', 'B_n'],
-  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.41, assist: 'C_f',
+  stats: { power: 3, speed: 3, reach: 5 }, atk: 2.2, assist: 'C_f',
   hp: 1040, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airSpeed: 2.2, gravity: 0.34, airDashes: 1,
   hurt: { w: 22, h: 50, crouchH: 32 },
   commands: dpCmds,
@@ -137,7 +159,7 @@ export const DIRECTOR: CharacterData = {
   ...DP, id: 'director', name: '연출감독', nameEn: 'DIRECTOR', color: '#ef4444', dept: '연출부', titles: TITLES('감독'), trait: 'mark',
   desc: '직접 싸우지 않는다. 콘티와 엑스트라로 판을 짜고, "액션!" 한마디로 전부 터뜨린다.',
   style: '설치·소환형 사령관', difficulty: 3, showcase: ['C_n', 'D_n', 'B_n'],
-  stats: { power: 2, speed: 3, reach: 4 }, atk: 1.5, assist: 'C_n',
+  stats: { power: 2, speed: 3, reach: 4 }, atk: 1.37, assist: 'C_n',
   hp: 960, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airDashes: 1,
   commands: directorCmds,
   moves: build({
@@ -194,7 +216,7 @@ export const SOUND: CharacterData = {
   ...DP, id: 'sound', name: '사운드감독', nameEn: 'SOUND', color: '#22c55e', dept: '녹음부', titles: TITLES('녹음감독'), trait: 'rec',
   desc: '붐마이크가 여의봉처럼 화면 절반까지 늘어난다. 맞을수록 사운드가 차고, 터뜨리면 화면이 운다.',
   style: '초장거리 탱커', difficulty: 2, showcase: ['C_n', 'boom_skyscraper', 'D_n'],
-  stats: { power: 4, speed: 2, reach: 5 }, atk: 0.72, assist: 'bass_wave',
+  stats: { power: 4, speed: 2, reach: 5 }, atk: 0.83, assist: 'bass_wave',
   hp: 1120, walkSpeed: 1.5, runSpeed: 3.1, jumpV: 6.2, airDashes: 0,
   commands: soundCmds,
   moves: build({
@@ -231,7 +253,7 @@ export const SOUND: CharacterData = {
     boom_snipe: atk('원거리 붐 견제', [8, 4, 18], 42, [40, 26, 250, 12], { vfx: 'pole', anim: 't:thrust:l' }),
     woofer_quake: atk('우퍼 대지진', [14, 8, 24], 48, [10, 0, 310, 14], { cd: 300, low: true, kbY: 3.5, vfx: 'quake', anim: 't:plant:l', sfx: 'wave', voice: '쿵—쿵—쿵!' }),
     pole_dive: atk('장대 다이브', [6, 16, 16], 68, [-20, -20, 62, 40], { ...air, lift: -8, groundBounce: true, anim: 't:dive:l' }),
-  }, soundCmds),
+  }, soundCmds, { heavy: true }),
 }
 
 // ════════════════════════════════════════════ 조명감독 ════════════════════════════════════════════
@@ -252,7 +274,7 @@ export const GAFFER: CharacterData = {
   ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
   desc: '빛줄기로 노출을 쌓고, 조명을 꺼 순간이동한다. 노출이 차면 상대는 눈부셔 쓰러진다.',
   style: '빛 마법사 · 스턴 콤보', difficulty: 2, showcase: ['C_n', 'D_n', 'keylight_cannon'],
-  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.78, assist: 'C_n',
+  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.8, assist: 'C_n',
   hp: 1000, walkSpeed: 1.7, runSpeed: 3.4, jumpV: 6.4, airDashes: 1,
   commands: gafferCmds,
   moves: build({
@@ -309,7 +331,7 @@ export const ART: CharacterData = {
   ...DP, id: 'art', name: '미술감독', nameEn: 'ART', color: '#a855f7', dept: '미술부', titles: TITLES('미술감독'), trait: 'wall',
   desc: '무대를 직접 짓는다. 공중에도 발판을 올리고, 벽으로 막고, 다 지으면 부숴서 날린다.',
   style: '건축·지형형 운영', difficulty: 3, showcase: ['C_u', 'C_f', 'D_n'],
-  stats: { power: 4, speed: 3, reach: 3 }, atk: 2.35, assist: 'C_d',
+  stats: { power: 4, speed: 3, reach: 3 }, atk: 2.27, assist: 'C_d',
   hp: 1040, airDashes: 1,
   commands: artCmds,
   moves: build({
@@ -428,7 +450,7 @@ export const ACTOR: CharacterData = {
   ...DP, id: 'actor', name: '배우', nameEn: 'ACTOR', color: '#14b8a6', dept: '연기팀', titles: ['단역', '조연', '주연', '톱스타', '명배우'], trait: 'copy',
   desc: '상대 기술과 커맨드를 두 번 보면 따라 한다. 배역을 바꾸면 기본기가 통째로 바뀐다.',
   style: '카피·배역 전환형', difficulty: 3, showcase: ['B_n', 'B_n~sageuk', 'D_n'],
-  stats: { power: 3, speed: 4, reach: 3 }, atk: 2.13, assist: 'B_f',
+  stats: { power: 3, speed: 4, reach: 3 }, atk: 1.93, assist: 'B_f',
   hp: 990, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.8, airDashes: 1,
   commands: actorCmds,
   moves: build({
