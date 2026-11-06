@@ -62,7 +62,7 @@ export const DP: CharacterData = {
   id: 'dp', name: '촬영감독', nameEn: 'DP', color: '#3b82f6', dept: '촬영부', titles: TITLES('촬영감독'), trait: 'lens',
   desc: '렌즈를 갈아 끼우면 다른 사람이 된다. 광각은 코앞 러시, 망원은 화면 끝 저격.',
   style: '모드 전환형 · 근거리↔원거리', difficulty: 2, showcase: ['C_n~tele', 'C_n~wide', 'B_n'],
-  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.19, assist: 'C_f',
+  stats: { power: 3, speed: 3, reach: 5 }, atk: 1.28, assist: 'C_f',
   hp: 1040, walkSpeed: 1.8, runSpeed: 3.6, jumpV: 6.6, airSpeed: 2.2, gravity: 0.34, airDashes: 1,
   hurt: { w: 22, h: 50, crouchH: 32 },
   commands: dpCmds,
@@ -252,7 +252,7 @@ export const GAFFER: CharacterData = {
   ...DP, id: 'gaffer', name: '조명감독', nameEn: 'GAFFER', color: '#f59e0b', dept: '조명부', titles: TITLES('조명감독'), trait: 'light',
   desc: '빛줄기로 노출을 쌓고, 조명을 꺼 순간이동한다. 노출이 차면 상대는 눈부셔 쓰러진다.',
   style: '빛 마법사 · 스턴 콤보', difficulty: 2, showcase: ['C_n', 'D_n', 'keylight_cannon'],
-  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.82, assist: 'C_n',
+  stats: { power: 3, speed: 3, reach: 4 }, atk: 0.79, assist: 'C_n',
   hp: 1000, walkSpeed: 1.7, runSpeed: 3.4, jumpV: 6.4, airDashes: 1,
   commands: gafferCmds,
   moves: build({
@@ -428,7 +428,7 @@ export const ACTOR: CharacterData = {
   ...DP, id: 'actor', name: '배우', nameEn: 'ACTOR', color: '#14b8a6', dept: '연기팀', titles: ['단역', '조연', '주연', '톱스타', '명배우'], trait: 'copy',
   desc: '상대 기술과 커맨드를 두 번 보면 따라 한다. 배역을 바꾸면 기본기가 통째로 바뀐다.',
   style: '카피·배역 전환형', difficulty: 3, showcase: ['B_n', 'B_n~sageuk', 'D_n'],
-  stats: { power: 3, speed: 4, reach: 3 }, atk: 1.83, assist: 'B_f',
+  stats: { power: 3, speed: 4, reach: 3 }, atk: 2.02, assist: 'B_f',
   hp: 990, walkSpeed: 1.9, runSpeed: 3.8, jumpV: 6.8, airDashes: 1,
   commands: actorCmds,
   moves: build({

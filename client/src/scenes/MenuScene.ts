@@ -23,15 +23,16 @@ export class MenuScene extends Phaser.Scene {
       ['SOLO MATCH  1 VS 1', () => this.scene.start('Select', { mode: 'vsai' })],
       ['TAG MATCH  2 VS 2', () => this.scene.start('Select', { mode: 'tag' })],
       ['STAGE MODE  스토리', () => this.scene.start('Stage')],
-      ['FRIEND MATCH', () => {}, '온라인 대전은 PHASE 4에서 구현 예정이에요'],
+      ['TRAINING  훈련장', () => this.scene.start('Select', { mode: 'training' })],
+      ['FRIEND MATCH', () => {}, '온라인 대전은 나중에 추가될 예정이에요'],
       ['CHARACTER', () => this.scene.start('Select', { mode: 'view' })],
       ['SETTINGS', () => this.scene.start('Settings')],
     ]
     items.forEach(([label, fn, locked], i) => {
-      const b = button(this, W / 2, 90 + i * 25, 180, 21, locked ? `${label}  🔒` : label, () => { unlockAudio(); fn() }, { disabledHint: locked, color: i < 2 ? 0x6a2c91 : undefined })
+      const b = button(this, W / 2, 88 + i * 23, 180, 19, locked ? `${label}  🔒` : label, () => { unlockAudio(); fn() }, { disabledHint: locked, color: i < 2 ? 0x6a2c91 : undefined })
       if (locked) b.setEnabled(false)
     })
-    text(this, W / 2, 260, 'v0.4 · 캐릭터 7명 · 1대1 / 태그 2대2 · 스테이지', 11, COLOR.dim)
+    text(this, W / 2, 260, 'v0.5 · 캐릭터 7명 · 1대1 / 태그 2대2 · 스테이지 · 훈련장', 11, COLOR.dim)
     this.input.keyboard?.once('keydown-ENTER', () => { sfx('confirm'); this.scene.start('Select', { mode: 'vsai' }) })
   }
 }

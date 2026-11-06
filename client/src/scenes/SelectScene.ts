@@ -10,7 +10,7 @@ import { sfx } from '../audio/Sfx'
 import type { CharacterData } from '../core/types'
 import { TRAIT_INFO } from '../core/Traits'
 
-type Mode = 'vsai' | 'tag' | 'view'
+type Mode = 'vsai' | 'tag' | 'view' | 'training'
 
 export class SelectScene extends Phaser.Scene {
   private previewEv?: Phaser.Time.TimerEvent
@@ -75,6 +75,7 @@ export class SelectScene extends Phaser.Scene {
     sfx('slate')
     const id = (i: number) => CHARACTERS[this.picks[i]].id
     if (this.mode === 'tag') this.scene.start('Fight', { p1: id(0), p1b: id(1), p2: id(2), p2b: id(3) })
+    else if (this.mode === 'training') this.scene.start('Fight', { p1: id(0), p2: id(1), training: true })
     else this.scene.start('Fight', { p1: id(0), p2: id(1) })
   }
 
@@ -82,8 +83,9 @@ export class SelectScene extends Phaser.Scene {
     const n = this.picks.length
     const cpu = this.mode !== 'view' && this.cpuTurn
     const tag = this.mode === 'tag'
-    const who = tag ? `${cpu ? 'CPU' : '내'} ${n % 2 + 1}번째` : cpu ? '상대 CPU' : '내 캐릭터'
-    this.title.setText(this.mode === 'view' ? 'CHARACTER' : `${tag ? 'TAG MATCH 2 VS 2' : 'SOLO MATCH 1 VS 1'} · ${who} 고르기`)
+    const train = this.mode === 'training'
+    const who = tag ? `${cpu ? 'CPU' : '내'} ${n % 2 + 1}번째` : cpu ? (train ? '더미' : '상대 CPU') : '내 캐릭터'
+    this.title.setText(this.mode === 'view' ? 'CHARACTER' : `${tag ? 'TAG MATCH 2 VS 2' : train ? 'TRAINING 훈련장' : 'SOLO MATCH 1 VS 1'} · ${who} 고르기`)
     this.cards.forEach((c, i) => c.setStrokeStyle(i === this.picked ? 3 : 2, i === this.picked ? (cpu ? 0xff5470 : 0xffd23f) : COLOR.line))
     // 이미 고른 캐릭터 표시 (1P 파랑 / CPU 빨강)
     this.badges.forEach((b, i) => {

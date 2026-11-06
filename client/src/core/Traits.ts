@@ -610,7 +610,9 @@ function copyMove(s: MoveData, id: string, srcChar: string, k: number): MoveData
     cd: s.cd ?? 150,
     anim: `${srcChar}:${s.anim ?? s.id}`,
     damage: Math.round(s.damage * k), chip: Math.round(s.chip * k),
-    projectile: s.projectile ? { ...s.projectile, damage: Math.round(s.projectile.damage * k) } : undefined,
+    // 흉내는 원본보다 조금 짧음: 근접 판정 최대 220, 투사체 사거리 70%
+    hitbox: { ...s.hitbox, w: Math.min(s.hitbox.w, Math.max(0, 220 - s.hitbox.x)) },
+    projectile: s.projectile ? { ...s.projectile, damage: Math.round(s.projectile.damage * k), life: Math.round(s.projectile.life * 0.7) } : undefined,
   }
 }
 

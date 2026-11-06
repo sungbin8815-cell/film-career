@@ -21,7 +21,7 @@ const BTN_KEY: Record<Button, Key> = { A: 'light', B: 'heavy', C: 'special', D: 
 
 /** 입력 스크립트 한 칸: 한 프레임 입력, 또는 "지금 기술이 맞거나 판정이 끝날 때까지 대기" */
 type Inp = Partial<Record<Key | 'fwd' | 'back', boolean>>
-type Frame = { inp: Inp } | { chain: true }
+export type Frame = { inp: Inp } | { chain: true }
 
 interface Option {
   id: string                 // 기술 id (칸 또는 커맨드 기술)
@@ -297,5 +297,60 @@ export class SimpleAI {
         return 1
     }
     return 1
+  }
+}
+
+/** 기술 하나를 내는 입력 프레임 (훈련장 시범·콤보 트라이얼용). 커맨드 기술이면 커맨드 입력 */
+export function framesForMove(c: CharacterData, id: string): Frame[] | null {
+  const o = optionsFor(c).find((x) => x.id === id)
+  return o ? [...o.frames] : null
+}
+
+/** 입력 스크립트를 한 프레임씩 InputState로 (앞·뒤는 상대 방향 기준) */
+export function frameInput(f: Frame, me: Fighter, opp: Fighter): InputState {
+  const inp = emptyInput()
+  if ('chain' in f) return inp
+  const fwdKey: 'left' | 'right' = opp.x >= me.x ? 'right' : 'left'
+  const backKey: 'left' | 'right' = fwdKey === 'right' ? 'left' : 'right'
+  for (const [k, v] of Object.entries(f.inp)) {
+    if (!v) continue
+    if (k === 'fwd') inp[fwdKey] = true
+    else if (k === 'back') inp[backKey] = true
+    else inp[k as Key] = true
+  }
+  return inp
+}
+
+/**
+ * 콤보 시범: 기술 목록을 차례로 입력. 앞 기술이 맞으면(또는 끝나면) 바로 다음 기술 입력을 넣어 캔슬
+ */
+export class ComboRunner {
+  private queue: string[]
+  private frames: Frame[] = []
+  private waitHit = false
+  private idle = 0
+  done = false
+  constructor(private c: CharacterData, moves: string[]) { this.queue = [...moves] }
+
+  input(me: Fighter, opp: Fighter): InputState {
+    if (this.done) return emptyInput()
+    if (this.waitHit) {
+      // 앞 기술이 맞았거나 끝나면 다음 기술
+      if (me.hitConfirmed || me.state !== 'attack') { this.waitHit = false; this.idle = 0 }
+      else return emptyInput()
+    }
+    if (!this.frames.length) {
+      const next = this.queue.shift()
+      if (!next) { this.done = true; return emptyInput() }
+      this.frames = framesForMove(this.c, next) ?? []
+    }
+    const f = this.frames.shift()!
+    if (!this.frames.length) this.waitHit = true
+    if ('chain' in f) {
+      // 체인 커맨드 중간: 지금 기술이 맞을 때까지 기다림
+      if (!(me.hitConfirmed || me.state !== 'attack') && this.idle++ < 40) { this.frames.unshift(f); return emptyInput() }
+      return emptyInput()
+    }
+    return frameInput(f, me, opp)
   }
 }

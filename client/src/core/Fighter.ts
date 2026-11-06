@@ -75,6 +75,8 @@ export class Fighter {
   private lastCmd = false
   private prev: InputState = emptyInput()
   private pressedAt: Partial<Record<keyof InputState, number>> = {}
+  /** 버튼을 누른 순간의 방향 (선입력이 나중에 나가도 그때 방향으로) */
+  private pressedDir: Partial<Record<keyof InputState, Pick<InputState, 'left' | 'right' | 'up' | 'down'>>> = {}
   private lastDir: { t: 'f' | 'b'; f: number } = { t: 'f', f: -99 }
   private running = false
   pendingEvents: { type: 'move'; move: MoveId }[] = []
@@ -163,7 +165,7 @@ export class Fighter {
     if (edge(backKey)) this.push('b')
     if (edge('up')) this.push('u')
     if (edge('down')) this.push('d')
-    for (const [k] of BTN_KEYS) if (edge(k)) this.pressedAt[k] = this.frame
+    for (const [k] of BTN_KEYS) if (edge(k)) { this.pressedAt[k] = this.frame; this.pressedDir[k] = { left: inp.left, right: inp.right, up: inp.up, down: inp.down } }
     for (const [k] of BTN_KEYS) { const at = this.pressedAt[k]; if (at != null && this.frame - at > BUFFER) delete this.pressedAt[k] }
     while (this.history.length && this.frame - this.history[0].f > CMD_TOTAL + 20) this.history.shift()
   }
@@ -245,7 +247,10 @@ export class Fighter {
     for (const [k, btn] of pressed) {
       // 버튼 토큰을 넣고 판정, 실패하면 되돌림 (선입력으로 남음)
       this.push(btn)
-      const pick = this.choose(btn, inp, opp, cancel)
+      // 지금 방향을 안 누르고 있으면 버튼을 누른 순간의 방향으로 칸을 고름
+      const d = this.pressedDir[k]
+      const dirInp = !inp.left && !inp.right && !inp.up && !inp.down && d ? { ...inp, ...d } : inp
+      const pick = this.choose(btn, dirInp, opp, cancel)
       if (!pick) { this.history.pop(); continue }
       delete this.pressedAt[k]
       this.startMove(pick.id, btn, cancel, pick.cmd)

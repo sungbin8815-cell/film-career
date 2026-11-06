@@ -9,6 +9,8 @@ import { getCharacter, atRank, RANK_MUL, howTo, moveList } from '../config/chara
 import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
 import { arenaFor } from '../config/arenas'
 import { UltCinema } from './UltCine'
+import { Training } from './Training'
+import { DUMMY_LABEL } from '../core/Dummy'
 import { TRAIT_INFO, LENSES, cdKey } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
@@ -25,7 +27,7 @@ const EDGE = 140
 const STEP_MS = 1000 / FPS
 
 /** 전투 설정. VS 모드는 p1·p2만, 스테이지 모드는 stage(0~4)까지 */
-export interface FightSetup { p1: string; p2: string; stage?: number; cpu?: Difficulty; /** 태그 모드: 두 번째 캐릭터 */ p1b?: string; p2b?: string }
+export interface FightSetup { p1: string; p2: string; stage?: number; cpu?: Difficulty; /** 태그 모드: 두 번째 캐릭터 */ p1b?: string; p2b?: string; /** 훈련장 */ training?: boolean }
 
 export class FightScene extends Phaser.Scene {
   private match!: Match
@@ -51,6 +53,7 @@ export class FightScene extends Phaser.Scene {
   private worldG!: Phaser.GameObjects.Graphics
   private vfxG!: Phaser.GameObjects.Graphics
   private cinema?: UltCinema
+  private training?: Training
   private tags: Phaser.GameObjects.Text[] = []
   private koSpin = [false, false]
   private assistSprites: Phaser.GameObjects.Sprite[] = []
@@ -64,7 +67,8 @@ export class FightScene extends Phaser.Scene {
   constructor() { super('Fight') }
 
   init(data: Partial<FightSetup>) {
-    this.setup = { p1: data.p1 ?? 'dp', p2: data.p2 ?? 'dp', stage: data.stage, cpu: data.cpu, p1b: data.p1b, p2b: data.p2b }
+    this.setup = { p1: data.p1 ?? 'dp', p2: data.p2 ?? 'dp', stage: data.stage, cpu: data.cpu, p1b: data.p1b, p2b: data.p2b, training: data.training }
+    this.training = undefined
     const base1 = getCharacter(this.setup.p1), base2 = getCharacter(this.setup.p2)
     const st = this.setup.stage != null ? STAGES[this.setup.stage] : null
     if (st) {
@@ -77,6 +81,13 @@ export class FightScene extends Phaser.Scene {
       this.names = [titleOf(base1.id, myRank), titleOf(base2.id, st.oppRank, st.boss)]
       this.bg = st.bg
       this.texKeys = [base1.id, st.boss ? `${base2.id}_boss` : base2.id === base1.id ? `${base2.id}_alt` : base2.id]
+    } else if (this.setup.training) {
+      // 훈련장: 끝나지 않는 1대1, 상대는 더미
+      this.match = new Match(base1, base2)
+      this.ai = new SimpleAI('normal')
+      this.names = [`1P ${base1.name}`, `더미 ${base2.name}`]
+      this.bg = 'stage_chroma'
+      this.texKeys = [base1.id, base2.id === base1.id ? `${base2.id}_alt` : base2.id]
     } else if (this.setup.p1b && this.setup.p2b) {
       // 태그 모드 (2대2)
       const t1 = [base1, getCharacter(this.setup.p1b)], t2 = [base2, getCharacter(this.setup.p2b)]
@@ -158,6 +169,7 @@ export class FightScene extends Phaser.Scene {
     this.uiCam = this.cameras.add(0, 0, 480, 270)
     this.uiCam.ignore(worldObjs)
     if (this.debug) this.dbg = this.w(this.add.graphics().setDepth(50))
+    if (this.setup.training) this.training = new Training(this, this.match, (o) => this.ui(o), this.setup.p1, (msg) => this.toast(msg))
     // 일시정지 버튼
     const pz = this.ui(text(this, W / 2, 46, '❚❚', 11, COLOR.dim).setInteractive({ useHandCursor: true }).setDepth(30))
     pz.on('pointerup', () => this.togglePause())
@@ -921,6 +933,7 @@ export class FightScene extends Phaser.Scene {
   private togglePause() {
     if (this.match.phase === 'matchOver') return
     this.paused = !this.paused
+    if (this.paused && this.training) { this.training.stopRecord(); this.trainingMenu(); return }
     if (this.paused) {
       const W = this.scale.width
       this.pauseLayer = this.ui(this.add.container(0, 0).setDepth(100))
@@ -953,6 +966,64 @@ export class FightScene extends Phaser.Scene {
     } else { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.controls.show(true) }
   }
 
+  /** 짧은 안내 글자 (화면 위쪽) */
+  private toast(msg: string) {
+    const t = this.ui(this.add.text(240, 96, msg, { fontFamily: FONT, fontSize: '11px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 3, resolution: 1, align: 'center' }).setOrigin(0.5).setDepth(70).setWordWrapWidth(380))
+    this.tweens.add({ targets: t, alpha: 0, delay: 1800, duration: 300, onComplete: () => t.destroy() })
+  }
+
+  /** 훈련장 메뉴 (일시정지): 옵션 토글 · 더미 · 위치 · 녹화 · 트라이얼 · 기술표 */
+  private trainingMenu() {
+    const tr = this.training!
+    const W = this.scale.width
+    this.controls.show(false)
+    this.pauseLayer?.destroy()
+    const L = this.pauseLayer = this.ui(this.add.container(0, 0).setDepth(100))
+    L.add(this.add.rectangle(0, 0, W, 270, 0x000000, 0.8).setOrigin(0))
+    L.add(text(this, W / 2, 16, 'TRAINING · 훈련장', 16, COLOR.accent))
+    const close = () => { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.paused = false; this.controls.show(true) }
+    const onoff = (b: boolean) => (b ? 'ON' : 'OFF')
+    const toggle = (x: number, y: number, label: string, get: () => boolean, set: (v: boolean) => void) => {
+      const b = button(this, x, y, 140, 20, `${label}: ${onoff(get())}`, () => { set(!get()); b.label.setText(`${label}: ${onoff(get())}`) })
+      L.add(b)
+    }
+    const lx = 90, rx = 250, fx = 400
+    toggle(lx, 44, '체력 무한', () => tr.opts.infHp, (v) => { tr.opts.infHp = v })
+    toggle(lx, 68, 'SP·자원 무한', () => tr.opts.infSp, (v) => { tr.opts.infSp = v })
+    toggle(lx, 92, '쿨타임 즉시', () => tr.opts.noCd, (v) => { tr.opts.noCd = v })
+    toggle(lx, 116, '판정 박스', () => !!this.dbg, (v) => { if (v) this.dbg = this.w(this.add.graphics().setDepth(50)); else { this.dbg?.destroy(); this.dbg = undefined } })
+    const dm = button(this, lx, 140, 140, 20, `더미: ${DUMMY_LABEL[tr.dummy.mode]} ▶`, () => { dm.label.setText(`더미: ${tr.cycleDummy()} ▶`) })
+    L.add(dm)
+    L.add(text(this, lx, 162, '위치 초기화', 10, COLOR.dim))
+    L.add(button(this, lx - 48, 180, 44, 20, '왼쪽', () => { tr.reset('left'); close() }))
+    L.add(button(this, lx, 180, 44, 20, '가운데', () => { tr.reset('center'); close() }))
+    L.add(button(this, lx + 48, 180, 44, 20, '오른쪽', () => { tr.reset('right'); close() }))
+    // 녹화·재생
+    L.add(text(this, rx, 38, '더미 녹화 (최대 10초)', 10, COLOR.dim))
+    L.add(button(this, rx, 56, 130, 20, '● 녹화 시작', () => { tr.startRecord(); close() }, { color: 0x9f1239 }))
+    L.add(button(this, rx, 80, 130, 20, tr.dummy.rec.length ? `▶ 재생 (${(tr.dummy.rec.length / 60).toFixed(1)}초)` : '▶ 재생 (녹화 없음)', () => { if (tr.dummy.rec.length) { tr.setDummy('play'); close() } }))
+    // 콤보 트라이얼
+    const list = tr.trials
+    L.add(text(this, rx, 106, '콤보 트라이얼', 10, COLOR.dim))
+    const tl = text(this, rx, 126, '', 10, COLOR.ink).setWordWrapWidth(150).setAlign('center')
+    const showT = () => { const t = list[tr.trialIdx]; tl.setText(t ? `${tr.trialIdx + 1}. [${t.level}] ${t.name}${tr.isDone(tr.trialIdx) ? ' ★' : ''}` : '없음') }
+    showT()
+    L.add(tl)
+    L.add(button(this, rx - 50, 146, 40, 20, '◀', () => { tr.setTrial(tr.trialIdx - 1); showT() }))
+    L.add(button(this, rx + 50, 146, 40, 20, '▶', () => { tr.setTrial(tr.trialIdx + 1); showT() }))
+    L.add(button(this, rx, 146, 54, 20, '시범', () => { tr.startDemo(); close() }, { color: 0x0f766e }))
+    const t0 = list[tr.trialIdx]
+    if (t0?.hint) L.add(text(this, rx, 168, `힌트: ${t0.hint}`, 9, COLOR.dim).setWordWrapWidth(150))
+    const doneN = list.filter((_, i) => tr.isDone(i)).length
+    L.add(text(this, rx, 186, `성공 ${doneN}/${list.length}`, 10, doneN === list.length && list.length ? '#ffd23f' : COLOR.dim))
+    // 오른쪽: 기술표·나가기
+    L.add(button(this, fx, 56, 120, 20, '기술표', () => { this.pauseLayer?.destroy(); this.pauseLayer = undefined; this.paused = false; this.training = undefined; this.togglePause(); this.training = tr }))
+    L.add(button(this, fx, 80, 120, 20, '캐릭터 바꾸기', () => this.scene.start('Select', { mode: 'training' })))
+    L.add(text(this, fx, 150, '키보드: J A · K B · L C\nI D · U R · ESC 메뉴', 9, COLOR.dim))
+    L.add(button(this, W / 2 - 80, 246, 140, 24, '계속하기', close, { color: 0x6a2c91 }))
+    L.add(button(this, W / 2 + 80, 246, 140, 24, '메뉴로', () => this.scene.start('Menu')))
+  }
+
   private showResult() {
     this.resultShown = true
     const win = this.match.winner === 0
@@ -982,10 +1053,13 @@ export class FightScene extends Phaser.Scene {
       this.tick++   // 잔상·먼지·찌그러짐은 시뮬레이션 스텝 기준 (144Hz 화면에서도 같은 속도, 슬로모션에선 같이 느려짐)
       for (const sq of this.squash) { sq.x += (1 - sq.x) * 0.22; sq.y += (1 - sq.y) * 0.22 }
       if (this.slow > 0) this.slow--
-      const p1 = this.controls.state
+      let p1 = this.controls.state
       const [a, b] = this.match.fighters
-      const p2 = this.match.phase === 'fight' ? this.ai.input(b, a, this.match.frame) : emptyInput()
-      this.handleEvents(this.match.step([p1, p2]))
+      let p2 = this.match.phase === 'fight' ? this.ai.input(b, a, this.match.frame) : emptyInput()
+      if (this.training) [p1, p2] = this.training.inputs(p1)
+      const ev = this.match.step([p1, p2])
+      this.training?.after(ev)
+      this.handleEvents(ev)
     }
     this.match.fighters.forEach((f, i) => this.drawFighter(f, i))
     // 태그 어시스트 캐릭터
@@ -1000,6 +1074,7 @@ export class FightScene extends Phaser.Scene {
     this.drawTraits()
     this.drawMoveFx()
     this.updateHud()
+    if (this.training) { this.training.draw(); this.hud.timer.setText('∞') }
     if (this.dbg) this.drawDebug()
     if (this.match.phase === 'matchOver' && !this.resultShown && this.match.phaseFrame > 60) this.showResult()
   }

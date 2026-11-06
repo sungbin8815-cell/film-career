@@ -26,6 +26,8 @@ export interface Projectile extends ProjectileSpec {
   /** 관통 투사체: 맞힌 횟수, 다음 판정까지 남은 프레임 */
   hits: number
   hitCd: number
+  /** 이 투사체를 낸 기술 id (훈련장 콤보 트라이얼용) */
+  moveId?: string
 }
 
 export const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
@@ -45,9 +47,11 @@ export class Match {
   roundWinner: number | null = null
   events: MatchEvent[] = []
   frame = 0
+  /** 훈련장: 쓰러지지 않고 시간도 안 줄어듦 */
+  training = false
   world: TraitWorld
   /** 궁극기 연출 중: 첫 타가 맞으면 모두 멈추고 피해가 연출 박자에 맞춰 들어감 */
-  cine: { att: number; t: number; dur: number; total: number; dealt: number; char: string; name: string } | null = null
+  cine: { att: number; t: number; dur: number; total: number; dealt: number; char: string; name: string; moveId: string } | null = null
   /** 궁극기를 쓴 기술 (헛침 판정용) */
   private ultSeen: [string | null, string | null] = [null, null]
   /** 떠 있는 발판 (스테이지별) */
@@ -221,7 +225,7 @@ export class Match {
       // 콤보 끊김: 맞던 쪽이 풀려나면 0
       if (!b.inHitstun) a.combo = 0
       if (!a.inHitstun) b.combo = 0
-      this.timer--
+      if (!this.training) this.timer--
       if (this.timer <= 0) this.timeUp()
     } else this.updateProjectiles()
 
@@ -278,7 +282,7 @@ export class Match {
     const hb = att.hitbox()
     if (hb && hb.w > 0 && att.moveFrame === att.move!.startup) this.world.hitWalls(att, hb)
     if (!hb || !att.canHitNow() || def.invuln > 0 || def.state === 'defeat' || def.hp <= 0) return
-    if (!this.canJuggle(def, !!att.move?.juggle)) return
+    if (!this.canJuggle(def, !!att.move?.juggle || !!att.move?.ult)) return
     if (!overlap(hb, def.hurtbox())) {
       return
     }
@@ -293,7 +297,7 @@ export class Match {
     this.resolve(att, def, { chip: 0, blockstun: 0, meterGain: 8, ...d, id: 'trait' }, opts.fromX ?? att.x, opts.unblockable)
   }
 
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce' | 'ult'>> & { id?: string; blind?: number }, fromX: number, unblockable = false) {
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce' | 'ult'>> & { id?: string; blind?: number; moveId?: string }, fromX: number, unblockable = false) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
@@ -321,7 +325,7 @@ export class Match {
     const counter = def.state === 'attack' && !!def.move && def.moveFrame < def.move.startup
     const scale = Math.max(0.4, Math.pow(0.88, att.combo)) * (counter ? 1.25 : 1) * (d.id ? att.dmgMul : 1)
     const dmg = this.world.absorb(def, Math.max(1, Math.round(d.damage * scale)))
-    def.hp = Math.max(0, def.hp - dmg)
+    def.hp = Math.max(this.training ? 1 : 0, def.hp - dmg)
     this.world.onDamaged(def, dmg, false)
     this.world.onHit(att, def, d, dmg, false)
     // 슈퍼아머(조명 특성): 피해는 받지만 기술이 끊기지 않음
@@ -330,7 +334,7 @@ export class Match {
       att.combo++
       this.hitstop = 7
       this.events.push({ type: 'armor', fighter: def.idx, x: hx, y: hy })
-      this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: false, finisher: false, launch: false, counter: false, moveName: d.name })
+      this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: false, finisher: false, launch: false, counter: false, moveName: d.name, move: d.moveId ?? d.id })
       return
     }
     att.combo++
@@ -360,7 +364,7 @@ export class Match {
     const finisher = !!d.finisher && (!d.multiHit || lastOfMulti)
     // 히트스톱은 기술 무게(피해)에 비례
     this.hitstop = Math.round(Math.min(16, 4 + d.damage / 11)) + (finisher ? 4 : 0) + (counter ? 5 : 0) + (d.crit ? 8 : 0)
-    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: heavy || !!d.crit, finisher: finisher || !!d.crit, launch, counter, crit: !!d.crit, moveName: d.name, sfx: d.sfx })
+    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: heavy || !!d.crit, finisher: finisher || !!d.crit, launch, counter, crit: !!d.crit, moveName: d.name, sfx: d.sfx, move: d.moveId ?? d.id })
     if (def.hp <= 0) this.ko(att.idx)
   }
 
@@ -369,7 +373,7 @@ export class Match {
 
   private startCine(att: Fighter, def: Fighter, ult: NonNullable<MoveData['ult']>, name: string) {
     const total = Math.round(ult.total * att.dmgMul)
-    this.cine = { att: att.idx, t: 0, dur: ult.cine, total, dealt: 0, char: this.cineChar(att), name }
+    this.cine = { att: att.idx, t: 0, dur: ult.cine, total, dealt: 0, char: this.cineChar(att), name, moveId: att.move?.id ?? 'R' }
     att.move = null; att.setState('idle'); att.vx = 0
     def.move = null; def.setState('hit'); def.stun = 999; def.vx = 0; def.vy = 0
     def.y = Math.max(def.y, def.floorY)
@@ -394,13 +398,13 @@ export class Match {
       def.hp = Math.max(1, def.hp - dmg)
       this.world.onDamaged(def, dmg, false)
       att.combo++
-      this.events.push({ type: 'hit', x: def.x, y: def.y + 34, attacker: att.idx, damage: dmg, combo: att.combo, heavy: true, finisher: beat >= beats - 1, launch: false, counter: false, moveName: c.name })
+      this.events.push({ type: 'hit', x: def.x, y: def.y + 34, attacker: att.idx, damage: dmg, combo: att.combo, heavy: true, finisher: beat >= beats - 1, launch: false, counter: false, moveName: c.name, move: c.moveId })
       this.events.push({ type: 'cine', fighter: att.idx, char: c.char, phase: 'hit', value: beat + 1 })
     }
     if (c.t >= c.dur) {
       this.cine = null
       // 마지막 한 방: 피해의 마지막 1은 여기서 (연출 중에는 쓰러지지 않음)
-      const ko = def.hp <= 1 || def.hp <= c.total * 0.02
+      const ko = !this.training && (def.hp <= 1 || def.hp <= c.total * 0.02)
       if (ko) def.hp = 0
       const dir = def.x >= att.x ? 1 : -1
       def.setState('knockback'); def.stun = 0; def.vy = 7.5; def.vx = dir * 5; def.y = Math.max(def.y, def.floorY + 0.01)
@@ -421,7 +425,7 @@ export class Match {
     const o = this.fighters[1 - f.idx]
     const x = p.atTarget ? o.x + f.facing * p.offsetX : f.x + f.facing * p.offsetX
     const y = p.atTarget ? o.y + p.startY : p.startY
-    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x, y, age: 0, dead: false, vx: p.vx * f.facing, hits: 0, hitCd: 0 })
+    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x, y, age: 0, dead: false, vx: p.vx * f.facing, hits: 0, hitCd: 0, moveId: f.move?.id })
   }
 
   /** 지정 위치에서 투사체 생성 (세트 파편·머리 위 낙하 등) */
@@ -456,7 +460,7 @@ export class Match {
         if (!p.pierce || p.hits >= (p.multiHit ?? 1)) p.dead = true
         else p.hitCd = 10
         const { multiHit: _m, ...spec } = p
-        this.resolve(att, def, { ...spec, meterGain: 6 }, p.x - p.vx * 4)
+        this.resolve(att, def, { ...spec, meterGain: 6, moveId: p.moveId }, p.x - p.vx * 4)
       }
       if (p.y <= 0) p.vy = 0
     }
