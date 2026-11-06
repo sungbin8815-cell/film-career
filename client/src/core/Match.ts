@@ -107,6 +107,12 @@ export class Match {
     }
   }
 
+  /** 띄운 상대 추가타 제한: 3번까지, 띄우기 기술이 아니면 1번까지 (착지 직후 넉백 프레임 포함) */
+  private canJuggle(def: Fighter, juggle: boolean) {
+    if (def.state !== 'knockback' && def.grounded) return true
+    return !(def.juggles >= 3 || !juggle && def.juggles >= 1)
+  }
+
   private isBlocking(def: Fighter, fromX: number) {
     if (!def.guardHeld || !def.grounded) return false
     if (def.state === 'attack' || def.inHitstun) return false
@@ -117,7 +123,7 @@ export class Match {
   private checkHit(att: Fighter, def: Fighter) {
     const hb = att.hitbox()
     if (!hb || !att.canHitNow() || def.invuln > 0 || def.state === 'defeat') return
-    if (def.state === 'knockback' && (def.juggles >= 3 || !att.move?.juggle && def.juggles >= 1)) return
+    if (!this.canJuggle(def, !!att.move?.juggle)) return
     if (!overlap(hb, def.hurtbox())) {
       return
     }
@@ -186,7 +192,7 @@ export class Match {
       const att = this.fighters[p.owner]
       if (def.invuln > 0) continue
       const box = { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }
-      if (p.y > 0 && overlap(box, def.hurtbox())) {
+      if (p.y > 0 && this.canJuggle(def, false) && overlap(box, def.hurtbox())) {
         p.dead = true
         this.resolve(att, def, { ...p, meterGain: 6, name: '조명 낙하' }, p.x - p.vx * 4)
       }

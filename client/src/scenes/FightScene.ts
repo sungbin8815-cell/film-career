@@ -145,25 +145,25 @@ export class FightScene extends Phaser.Scene {
     spr.setPosition(Math.round(f.x) + jitter, Math.round(GROUND - f.y))
     spr.setFlipX(f.facing < 0)
     const sq = this.squash[i]
-    sq.x += (1 - sq.x) * 0.22; sq.y += (1 - sq.y) * 0.22
     spr.setScale(sq.x, sq.y)
     this.shadows[i].setPosition(Math.round(f.x), GROUND + 1).setScale(1 - Math.min(0.5, f.y / 120), 1)
     let anim = f.state as string
     if (f.state === 'attack' && f.move) {
       const m = f.move
-      const def = ANIMS[m.id] ?? ANIMS.light
+      const animId = ANIMS[m.id] ? m.id : 'light'   // 애니메이션이 없는 기술은 약공격 모션으로
+      const def = ANIMS[animId]
       const n = def.frames.length
       const mf = f.moveFrame, st = m.startup, ac = m.active
       const activeNow = mf >= st && mf < st + ac
       if (m.afterimage && activeNow && this.tick % 3 === 0) this.ghost(spr, i)
-      if (def.loop && activeNow) anim = m.id
+      if (def.loop && activeNow) anim = animId
       else {
         let idx: number
         if (n <= 2) idx = mf < st ? 0 : n - 1
         else if (n === 3) idx = mf < st ? 0 : mf < st + ac ? 1 : 2
         else idx = mf < st / 2 ? 0 : mf < st ? 1 : mf < st + ac ? 2 : 3
         spr.anims.stop()
-        spr.setFrame(`${m.id}_${Math.min(idx, n - 1)}`)
+        spr.setFrame(`${animId}_${Math.min(idx, n - 1)}`)
         this.applyFlash(spr, i)
         return
       }
@@ -205,7 +205,9 @@ export class FightScene extends Phaser.Scene {
   private finisherFx() {
     this.slow = 26
     this.zoomKick = 0.35
-    this.cameras.main.flash(90, 255, 255, 255)
+    // 화면 전체 플래시는 K.O. 전용 → 마무리기는 옅은 섬광만
+    const fl = this.ui(this.add.rectangle(0, 0, 480, 270, 0xfff4d6, 0.35).setOrigin(0).setDepth(37))
+    this.tweens.add({ targets: fl, alpha: 0, duration: 140, onComplete: () => fl.destroy() })
     const g = this.ui(this.add.graphics().setDepth(38))
     g.lineStyle(2, 0xffffff, 0.75)
     for (let k = 0; k < 28; k++) {
@@ -294,7 +296,7 @@ export class FightScene extends Phaser.Scene {
           this.squash[def] = { x: 0.86, y: 1.12 }
           this.cameras.main.shake(e.finisher ? 260 : e.heavy ? 150 : 70, e.finisher ? 0.02 : e.heavy ? 0.011 : 0.005)
           sfx(e.heavy || e.finisher ? 'hitHeavy' : 'hit')
-          if (e.finisher) { this.finisherFx(); sfx('ko') }
+          if (e.finisher) { this.finisherFx(); sfx('shutter') }
           if (e.combo >= 2) {
             const c = this.hud.combo[e.attacker]
             const col = e.combo >= 8 ? '#ff5470' : e.combo >= 5 ? '#ff9f43' : '#ffd23f'
@@ -312,8 +314,7 @@ export class FightScene extends Phaser.Scene {
         case 'move': {
           const f = this.match.fighters[e.fighter]
           if (e.combo) this.comboBanner(e.fighter, e.move, e.name)
-          else if (e.voice) this.bubble(f, e.voice)
-          if (e.combo && e.voice) this.bubble(f, e.voice)
+          if (e.voice) this.bubble(f, e.voice)
           sfx(e.sfx === 'light' || e.sfx === 'heavy' ? 'swing' : e.sfx ?? 'swing')
           break
         }
@@ -389,10 +390,11 @@ export class FightScene extends Phaser.Scene {
 
   update(_t: number, delta: number) {
     if (this.paused) return
-    this.tick++
     this.acc += Math.min(delta, 100) * (this.slow > 0 ? 0.35 : 1)
     while (this.acc >= STEP_MS) {
       this.acc -= STEP_MS
+      this.tick++   // 잔상·먼지·찌그러짐은 시뮬레이션 스텝 기준 (144Hz 화면에서도 같은 속도, 슬로모션에선 같이 느려짐)
+      for (const sq of this.squash) { sq.x += (1 - sq.x) * 0.22; sq.y += (1 - sq.y) * 0.22 }
       if (this.slow > 0) this.slow--
       const p1 = this.controls.state
       const [a, b] = this.match.fighters

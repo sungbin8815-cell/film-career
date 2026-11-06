@@ -177,6 +177,35 @@ describe('커맨드 콤보', () => {
       expect(m.fighters[1].hp, `gap ${g}`).toBeLessThan(DP.hp - 110)
     }
   })
+  // 프레임별 입력을 직접 지정
+  function at(map: Record<number, Partial<InputState>>, close = true, meter = 0) {
+    const m = new Match(DP, DP); toFight(m); if (close) closeIn(m, 26)
+    m.fighters[0].meter = meter
+    const moves: string[] = []; const hits: string[] = []
+    for (let f = 0; f < 120; f++) {
+      const ev = m.step([map[f] ? { ...emptyInput(), ...map[f] } : idle(), idle()])
+      for (const e of ev) {
+        if (e.type === 'move' && e.fighter === 0) moves.push(e.move)
+        if (e.type === 'hit' && e.attacker === 0) hits.push(e.moveName)
+      }
+    }
+    return { moves, hits }
+  }
+  it('경직 중에 미리 누른 버튼은 기술이 끝나면 나간다 (선입력)', () => {
+    // 헛친 강공격(총 33프레임)의 경직 끝 무렵에 약 → 강이 끝나자마자 약
+    expect(at({ 0: { heavy: true }, 30: { light: true } }, false).moves).toEqual(['heavy', 'light'])
+  })
+  it('아주 빠르게 약 약 강을 눌러도 순서대로 기억해서 어퍼가 나간다', () => {
+    expect(at({ 0: { light: true }, 2: { light: true }, 4: { heavy: true } }).moves).toEqual(['light', 'light', 'upper'])
+  })
+  it('게이지 없는 필살 버튼이 다른 버튼을 막지 않는다', () => {
+    expect(at({ 0: { light: true }, 3: { super: true }, 5: { light: true } }).moves).toEqual(['light', 'light'])
+  })
+  it('강 강: 첫 강공격이 판정을 낸 뒤에 회전베기로 이어진다', () => {
+    const { moves, hits } = at({ 0: { heavy: true }, 4: { heavy: true } })
+    expect(moves).toEqual(['heavy', 'spin'])
+    expect(hits[0]).toBe(DP.moves.heavy!.name)
+  })
   it('↓+강 → 로우앵글 스윕', () => {
     expect(run([{ heavy: true, down: true }]).moves).toEqual(['sweep'])
   })

@@ -4,6 +4,7 @@ import { emptyInput, STAGE_W } from './types'
 
 export const METER_MAX = 100
 const BUFFER = 8          // 입력 선입력 허용 프레임
+const ATTACK_KEYS = ['light', 'heavy', 'special', 'super'] as const
 const RUN_TAP = 12        // 같은 방향 두 번 누르기 간격
 export const WALL = 14    // 화면 끝 여백
 
@@ -90,21 +91,19 @@ export class Fighter {
     return this.hitsThisMove === 0
   }
 
-  private pressed(k: keyof InputState, inp: InputState) {
-    if (inp[k] && !this.prev[k]) this.pressedAt[k] = this.frame
-    const at = this.pressedAt[k]
-    return at != null && this.frame - at <= BUFFER
+  /** 새로 눌린 공격 버튼을 매 프레임 기록 (기술 중·히트스톱 중에도) */
+  private record(inp: InputState) {
+    for (const k of ATTACK_KEYS) if (inp[k] && !this.prev[k]) this.pressedAt[k] = this.frame
+    for (const k of ATTACK_KEYS) { const at = this.pressedAt[k]; if (at != null && this.frame - at > BUFFER) delete this.pressedAt[k] }
   }
-  private consume(k: keyof InputState) { delete this.pressedAt[k] }
 
-  /** 이번 프레임에 눌린 공격 버튼 → 버튼 토큰 (L H S X, ↓와 같이면 dL dH dS) */
-  private pressedBtn(inp: InputState): Btn | null {
+  /** 선입력된 공격 버튼들 → 버튼 토큰, 먼저 누른 순 (L H S X, ↓와 같이면 dL dH dS) */
+  private bufferedBtns(inp: InputState): { k: (typeof ATTACK_KEYS)[number]; b: Btn }[] {
     const d = inp.down ? 'd' : ''
-    if (this.pressed('super', inp)) { this.consume('super'); return 'X' }
-    if (this.pressed('special', inp)) { this.consume('special'); return (d + 'S') as Btn }
-    if (this.pressed('heavy', inp)) { this.consume('heavy'); return (d + 'H') as Btn }
-    if (this.pressed('light', inp)) { this.consume('light'); return (d + 'L') as Btn }
-    return null
+    const tok = { light: 'L', heavy: 'H', special: 'S', super: 'X' } as const
+    return ATTACK_KEYS.filter((k) => this.pressedAt[k] != null)
+      .sort((a, b) => this.pressedAt[a]! - this.pressedAt[b]!)
+      .map((k) => ({ k, b: (k === 'super' ? 'X' : d + tok[k]) as Btn }))
   }
 
   /** 버튼 → 기본 기술 (↓+특 = special2, ↓만 다르게 정의된 기술이 있으면 그것) */
@@ -113,12 +112,10 @@ export class Fighter {
     return map[b]
   }
 
-  /** 커맨드 콤보 찾기: 지금까지 이어 친 버튼 + 이번 버튼 */
+  /** 커맨드 콤보 찾기: 지금까지 이어 친 버튼 + 이번 버튼 (정확히 같은 순서) */
   private findCombo(seq: Btn[]): MoveId | null {
-    const combos = [...this.char.combos].sort((a, b) => b.seq.length - a.seq.length)
-    for (const c of combos) {
-      if (c.seq.length !== seq.length) continue
-      if (c.seq.every((t, i) => t === seq[i])) return c.move
+    for (const c of this.char.combos) {
+      if (c.seq.length === seq.length && c.seq.every((t, i) => t === seq[i])) return c.move
     }
     return null
   }
@@ -132,33 +129,39 @@ export class Fighter {
     return !!m && (!m.cost || this.meter >= m.cost)
   }
 
-  /** 기술 발동 시도. cancel = 이전 기술 경직을 끊고 잇는 중 */
+  /** 기술 발동 시도. cancel = 이전 기술 경직을 끊고 잇는 중.
+   *  선입력된 버튼을 먼저 누른 순서로 시도하고, 못 쓰는 버튼은 건너뜀(버퍼에 남아 있다가 만료) */
   private tryStartMove(inp: InputState, opts: { cancel?: boolean } = {}): boolean {
-    const saved = { ...this.pressedAt }
-    const b = this.pressedBtn(inp)
-    if (!b) return false
-    const single = (): MoveId => (b.startsWith('d') ? this.findCombo([b]) : null) ?? this.baseMove(b)
-    let id: MoveId | null = null
-    if (opts.cancel) {
-      // 1) 커맨드 콤보: 순서만 맞으면 앞 기술이 빗나가도 이어짐
-      const c = this.findCombo([...this.chainBtns, b])
-      if (this.affordable(c)) id = c
-      else {
-        // 2) 일반 캔슬: 맞혔을 때만 cancelInto 목록으로
-        const base = single()
-        const okCancel = this.hitConfirmed && (this.move?.cancelInto ?? []).includes(base) && !(base === 'light' && this.lightChain >= 2)
-        // 콤보 앞부분(예: 약 약 강의 '약 약')이면 빗나가도 이어 침
-        const prefix = this.isComboPrefix([...this.chainBtns, b])
-        if ((okCancel || prefix) && this.affordable(base)) id = base
-      }
-      if (!id) { this.pressedAt = saved; return false } // 못 이으면 선입력으로 남겨 둠
-    } else {
-      id = single()
-      if (!this.affordable(id)) id = this.affordable(this.baseMove(b)) ? this.baseMove(b) : null
-      if (!id) return false
+    for (const { k, b } of this.bufferedBtns(inp)) {
+      const id = this.chooseMove(b, !!opts.cancel)
+      if (!id) continue
+      delete this.pressedAt[k]
+      this.startMove(id, b, !!opts.cancel)
+      return true
     }
-    this.startMove(id, b, !!opts.cancel)
-    return true
+    return false
+  }
+
+  private chooseMove(b: Btn, cancel: boolean): MoveId | null {
+    const single = (): MoveId => (b.startsWith('d') ? this.findCombo([b]) : null) ?? this.baseMove(b)
+    if (!cancel) {
+      const id = single()
+      if (this.affordable(id)) return id
+      return this.affordable(this.baseMove(b)) ? this.baseMove(b) : null
+    }
+    const m = this.move!
+    // 맞혔으면 바로, 빗나갔으면 판정이 끝난 뒤에만 이어 침 (판정 검사 전에 끊기지 않게)
+    const whiffOk = this.moveFrame >= m.startup + m.active
+    const seq = [...this.chainBtns, b]
+    // 1) 커맨드 콤보
+    const c = this.findCombo(seq)
+    if ((this.hitConfirmed || whiffOk) && this.affordable(c)) return c
+    // 2) 일반 캔슬: 맞혔을 때만 cancelInto 목록으로
+    const base = single()
+    const okCancel = this.hitConfirmed && (m.cancelInto ?? []).includes(base) && !(base === 'light' && this.lightChain >= 2)
+    // 3) 콤보 앞부분(예: 약 약 강의 '약 약')이면 빗나가도 이어 침
+    const prefix = (this.hitConfirmed || whiffOk) && this.isComboPrefix(seq)
+    return (okCancel || prefix) && this.affordable(base) ? base : null
   }
 
   pendingEvents: { type: 'move'; move: MoveId }[] = []
@@ -193,6 +196,7 @@ export class Fighter {
     this.stateFrame++
     this.guardHeld = inp.guard
     if (!canAct) inp = emptyInput()
+    this.record(inp)
     // 방향 두 번 → 달리기
     const dirNow = inp.right ? 1 : inp.left ? -1 : 0
     const dirPrev = this.prev.right ? 1 : this.prev.left ? -1 : 0
