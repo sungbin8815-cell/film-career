@@ -1,17 +1,24 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>ROLLING! 스프라이트 미리보기</title>
-<style>body{background:#3b3550;color:#fff;font:12px monospace;margin:8px}.row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.c{background:#5b5675;padding:3px;text-align:center}canvas{image-rendering:pixelated;width:192px;height:228px;display:block}</style></head>
+<style>body{background:#3b3550;color:#fff;font:12px monospace;margin:8px}.row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}.c{background:#5b5675;padding:2px;text-align:center}canvas{image-rendering:pixelated;width:120px;height:114px;display:block}</style></head>
 <body><div id="out"></div>
 <script type="module">
-// 개발용: npm run dev → http://localhost:5173/preview.html
-import { paint } from './src/gfx/Painter.ts'
+// 개발용: npm run dev → http://localhost:5173/preview.html  (?anims=idle,light 로 동작 고르기)
+import { paint, KITS } from './src/gfx/Painter.ts'
 import { ANIMS } from './src/gfx/poses.ts'
 import { COSTUMES } from './src/gfx/TextureFactory.ts'
+import { KIT_OF } from './src/config/characters.ts'
+const want = (new URLSearchParams(location.search).get('anims') ?? 'idle,light,heavy,poke,throw,burst,flash').split(',')
+const keys = (new URLSearchParams(location.search).get('keys') ?? 'dp,director,sound,gaffer,art,makeup').split(',')
 const out = document.getElementById('out')
-for (const key of ['dp', 'dp_alt']) for (const [name, a] of Object.entries(ANIMS)) {
-  if (key === 'dp_alt' && name !== 'idle') continue   // 2P 색은 대기 모션만
+for (const key of keys) {
   const row = document.createElement('div'); row.className = 'row'
-  a.frames.forEach((p, i) => { const d = document.createElement('div'); d.className = 'c'; const c = paint(COSTUMES[key], p); const big = document.createElement('canvas'); big.width = c.width; big.height = c.height; big.getContext('2d').drawImage(c, 0, 0); d.append(big, `${key} ${name} ${i}`); row.append(d) })
+  for (const name of want) ANIMS[name].frames.forEach((p, i) => {
+    const d = document.createElement('div'); d.className = 'c'
+    const c = paint(COSTUMES[key], p, KITS[KIT_OF[key.replace(/_(alt|boss)$/, '')]])
+    const big = document.createElement('canvas'); big.width = c.width; big.height = c.height; big.getContext('2d').drawImage(c, 0, 0)
+    d.append(big, `${name}${i}`); row.append(d)
+  })
   out.append(row)
 }
 </script></body></html>

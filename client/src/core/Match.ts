@@ -1,6 +1,6 @@
 // 경기 진행: 라운드, 타이머, 충돌 판정, 피격·가드, 히트스톱, 투사체.
 // 화면은 이 객체의 상태를 읽어 그리고, events로 효과를 냅니다.
-import { Fighter, METER_MAX } from './Fighter'
+import { Fighter, METER_MAX, type FighterOpts } from './Fighter'
 import type { CharacterData, InputState, MatchEvent, MoveData, ProjectileSpec, Rect } from './types'
 import { FPS, STAGE_W } from './types'
 
@@ -12,6 +12,7 @@ export type Phase = 'intro' | 'fight' | 'ko' | 'roundEnd' | 'matchOver'
 
 export interface Projectile extends ProjectileSpec {
   owner: number
+  name: string
   x: number
   y: number
   age: number
@@ -34,8 +35,9 @@ export class Match {
   events: MatchEvent[] = []
   frame = 0
 
-  constructor(p1: CharacterData, p2: CharacterData) {
-    this.fighters = [new Fighter(p1, 0, START_X[0]), new Fighter(p2, 1, START_X[1])]
+  /** opts: 스테이지 모드 직급 배율 (체력·공격력) */
+  constructor(p1: CharacterData, p2: CharacterData, opts: [FighterOpts?, FighterOpts?] = []) {
+    this.fighters = [new Fighter(p1, 0, START_X[0], opts[0]), new Fighter(p2, 1, START_X[1], opts[1])]
     this.events.push({ type: 'round', round: 1 })
   }
 
@@ -64,7 +66,7 @@ export class Match {
         const m = f.char.moves[e.move]!
         this.events.push({ type: 'move', fighter: f.idx, move: e.move, name: m.name, combo: !!m.combo, voice: m.voice, sfx: m.sfx, afterimage: m.afterimage })
         if (e.move === 'super') { this.events.push({ type: 'super', fighter: f.idx }); this.hitstop = 24 }
-        if (m.projectile) this.spawnProjectile(f, m.projectile)
+        if (m.projectile) this.spawnProjectile(f, m.projectile, m.name)
       }
       f.pendingEvents = []
     }
@@ -148,7 +150,9 @@ export class Match {
       this.events.push({ type: 'block', x: hx, y: hy, attacker: att.idx })
       return
     }
-    const scale = Math.max(0.4, Math.pow(0.88, att.combo))
+    // 카운터: 상대가 기술을 내는 도중(판정 나오기 전)에 맞히면 더 아프고 더 오래 굳음
+    const counter = def.state === 'attack' && !!def.move && def.moveFrame < def.move.startup
+    const scale = Math.max(0.4, Math.pow(0.88, att.combo)) * (counter ? 1.25 : 1) * (d.id ? att.dmgMul : 1)
     const dmg = Math.max(1, Math.round(d.damage * scale))
     def.hp = Math.max(0, def.hp - dmg)
     att.combo++
@@ -166,27 +170,29 @@ export class Match {
       def.vx = dir * Math.max(1.5, d.kbX)
     } else {
       def.setState('hit')
-      def.stun = d.hitstun
+      def.stun = d.hitstun + (counter ? 8 : 0)
       def.vx = dir * d.kbX
     }
     const heavy = d.damage >= 80 || !!kbY
     const finisher = !!d.finisher && (!d.multiHit || lastOfMulti)
-    this.hitstop = finisher ? 14 : heavy ? 9 : 5
-    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy, finisher, launch, moveName: d.name })
+    this.hitstop = (finisher ? 15 : heavy ? 10 : 6) + (counter ? 5 : 0)
+    this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy, finisher, launch, counter, moveName: d.name })
     if (def.hp <= 0) this.ko(att.idx)
   }
 
-  private spawnProjectile(f: Fighter, p: ProjectileSpec) {
-    this.projectiles.push({ ...p, owner: f.idx, x: f.x + f.facing * p.offsetX, y: p.startY, age: 0, dead: false, vx: p.vx * f.facing })
+  private spawnProjectile(f: Fighter, p: ProjectileSpec, name: string) {
+    const d = f.dmgMul
+    this.projectiles.push({ ...p, damage: Math.round(p.damage * d), chip: Math.round(p.chip * d), name, owner: f.idx, x: f.x + f.facing * p.offsetX, y: p.startY, age: 0, dead: false, vx: p.vx * f.facing })
   }
 
   private updateProjectiles() {
     for (const p of this.projectiles) {
       p.age++
       p.x += p.vx
+      if (p.gy) p.vy -= p.gy
       p.y = Math.max(0, p.y + p.vy)
-      if (p.age > p.life || (p.y <= 0 && p.age > 4 && p.kind !== 'lightstand')) p.dead = true
-      if (p.y <= 0 && p.kind === 'lightstand' && p.age > p.life - 16) { /* 바닥에 쓰러진 채 잠깐 남음 */ }
+      // 조명 낙하는 바닥에 쓰러진 채 잠깐 남고, 나머지는 바닥·화면 밖에서 사라짐
+      if (p.age > p.life || (p.y <= 0 && p.age > 4 && p.kind !== 'lightstand') || p.x < -20 || p.x > STAGE_W + 20) p.dead = true
       if (p.dead || this.phase !== 'fight') continue
       const def = this.fighters[1 - p.owner]
       const att = this.fighters[p.owner]
@@ -194,7 +200,7 @@ export class Match {
       const box = { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }
       if (p.y > 0 && this.canJuggle(def, false) && overlap(box, def.hurtbox())) {
         p.dead = true
-        this.resolve(att, def, { ...p, meterGain: 6, name: '조명 낙하' }, p.x - p.vx * 4)
+        this.resolve(att, def, { ...p, meterGain: 6 }, p.x - p.vx * 4)
       }
       if (p.y <= 0) p.vy = 0
     }
@@ -212,7 +218,7 @@ export class Match {
 
   private timeUp() {
     const [a, b] = this.fighters
-    const winner = a.hp / a.char.hp >= b.hp / b.char.hp ? 0 : 1
+    const winner = a.hp / a.maxHp >= b.hp / b.maxHp ? 0 : 1
     this.events.push({ type: 'timeup' })
     this.roundWinner = winner
     this.wins[winner]++

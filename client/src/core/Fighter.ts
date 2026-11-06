@@ -8,6 +8,8 @@ const ATTACK_KEYS = ['light', 'heavy', 'special', 'super'] as const
 const RUN_TAP = 12        // 같은 방향 두 번 누르기 간격
 export const WALL = 14    // 화면 끝 여백
 
+export interface FighterOpts { hpMul?: number; dmgMul?: number }
+
 export class Fighter {
   readonly char: CharacterData
   readonly idx: number
@@ -35,12 +37,16 @@ export class Fighter {
   private running = false
   frame = 0
 
-  constructor(char: CharacterData, idx: number, x: number) {
+  readonly maxHp: number
+  readonly dmgMul: number
+  constructor(char: CharacterData, idx: number, x: number, opts: FighterOpts = {}) {
     this.char = char
     this.idx = idx
     this.x = x
     this.facing = idx === 0 ? 1 : -1
-    this.hp = char.hp
+    this.maxHp = Math.round(char.hp * (opts.hpMul ?? 1))
+    this.dmgMul = opts.dmgMul ?? 1
+    this.hp = this.maxHp
   }
 
   get grounded() { return this.y <= 0 && this.vy <= 0 }
@@ -51,7 +57,7 @@ export class Fighter {
   resetForRound(x: number) {
     this.x = x; this.y = 0; this.vx = 0; this.vy = 0
     this.facing = this.idx === 0 ? 1 : -1
-    this.hp = this.char.hp
+    this.hp = this.maxHp
     this.setState('idle')
     this.move = null; this.stun = 0; this.invuln = 0; this.combo = 0; this.lightChain = 0; this.chainBtns = []; this.juggles = 0
   }

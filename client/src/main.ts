@@ -6,6 +6,8 @@ import { MenuScene } from './scenes/MenuScene'
 import { SelectScene } from './scenes/SelectScene'
 import { SettingsScene } from './scenes/SettingsScene'
 import { FightScene } from './scenes/FightScene'
+import { StageScene } from './scenes/StageScene'
+import { PromotionScene } from './scenes/PromotionScene'
 import { Controls } from './ui/Controls'
 import { STAGE_W, STAGE_H } from './core/types'
 import { unlockAudio } from './audio/Sfx'
@@ -22,7 +24,7 @@ const game = new Phaser.Game({
   roundPixels: true,
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   input: { activePointers: 4 },
-  scene: [BootScene, MenuScene, SelectScene, SettingsScene, FightScene],
+  scene: [BootScene, MenuScene, SelectScene, SettingsScene, FightScene, StageScene, PromotionScene],
 })
 game.registry.set('controls', controls)
 

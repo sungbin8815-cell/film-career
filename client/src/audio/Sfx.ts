@@ -21,6 +21,14 @@ function tone(freq: number, dur: number, type: OscillatorType, vol = 0.2, slide 
   g.gain.setValueAtTime(vol, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur)
   o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + dur)
 }
+/** 낮은 '쿵' (주파수가 뚝 떨어지는 사인파) */
+function thump(f0: number, f1: number, dur: number, vol = 0.4) {
+  const a = ac(); if (!a) return
+  const o = a.createOscillator(), g = a.createGain()
+  o.type = 'sine'; o.frequency.setValueAtTime(f0, a.currentTime); o.frequency.exponentialRampToValueAtTime(f1, a.currentTime + dur)
+  g.gain.setValueAtTime(vol, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur)
+  o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + dur)
+}
 function noise(dur: number, vol = 0.25, hp = 800) {
   const a = ac(); if (!a) return
   const buf = a.createBuffer(1, Math.floor(a.sampleRate * dur), a.sampleRate)
@@ -35,8 +43,15 @@ function noise(dur: number, vol = 0.25, hp = 800) {
 const SOUNDS: Record<string, () => void> = {
   light: () => { noise(0.06, 0.2, 2000); tone(220, 0.06, 'square', 0.08, -100) },
   heavy: () => { noise(0.12, 0.3, 600); tone(110, 0.15, 'square', 0.15, -60) },
-  hit: () => { noise(0.08, 0.3, 1200); tone(160, 0.1, 'triangle', 0.25, -90) },
-  hitHeavy: () => { noise(0.16, 0.4, 400); tone(90, 0.2, 'sawtooth', 0.25, -50) },
+  // 타격음 = 짧은 '딱'(노이즈) + 몸에 울리는 '쿵'(사인파) 두 겹
+  hit: () => { noise(0.05, 0.38, 1800); thump(220, 70, 0.09, 0.35); tone(160, 0.07, 'triangle', 0.15, -90) },
+  hitHeavy: () => { noise(0.09, 0.5, 700); thump(160, 38, 0.2, 0.55); tone(90, 0.16, 'sawtooth', 0.18, -50) },
+  hitFinish: () => { noise(0.14, 0.55, 400); thump(140, 30, 0.36, 0.65); tone(70, 0.3, 'sawtooth', 0.2, -30); setTimeout(() => noise(0.2, 0.18, 3000), 60) },
+  counter: () => { tone(1320, 0.08, 'square', 0.1); setTimeout(() => tone(1760, 0.12, 'square', 0.1), 60) },
+  shout: () => { tone(420, 0.18, 'sawtooth', 0.12, -120); noise(0.12, 0.15, 1500) },
+  wave: () => { tone(1800, 0.35, 'sine', 0.08, 900); tone(600, 0.3, 'triangle', 0.08, -200) },
+  whip: () => { noise(0.05, 0.35, 3500); tone(900, 0.08, 'square', 0.06, -600) },
+  spray: () => noise(0.3, 0.15, 5000),
   block: () => { tone(1400, 0.05, 'square', 0.08); tone(900, 0.08, 'square', 0.06) },
   swing: () => noise(0.08, 0.12, 3000),
   dash: () => { noise(0.2, 0.15, 1500); tone(300, 0.2, 'sawtooth', 0.06, 200) },

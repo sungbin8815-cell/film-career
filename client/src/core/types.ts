@@ -63,6 +63,9 @@ export interface MoveData {
   lastHitKbY?: number      // 연속 판정의 마지막 타만 띄우기
   afterimage?: boolean     // 잔상 연출
   juggle?: boolean         // 공중에 뜬 상대도 맞힘
+  anim?: string            // 쓸 애니메이션 (없으면 id와 같은 이름)
+  rank?: number            // 스테이지 모드에서 쓸 수 있게 되는 직급 (0 막내 ~ 4 감독, 없으면 0)
+  desc?: string            // 기술표 설명
 }
 
 export interface ProjectileSpec {
@@ -80,6 +83,7 @@ export interface ProjectileSpec {
   blockstun: number
   kbX: number
   kbY?: number
+  gy?: number              // 중력 (포물선으로 날아가는 투사체)
 }
 
 export interface CharacterData {
@@ -88,7 +92,10 @@ export interface CharacterData {
   nameEn: string
   color: string
   desc: string
-  implemented: boolean
+  /** 부서 이름 (촬영부 등) */
+  dept: string
+  /** 스테이지 모드 직급 5단계: 막내 → 서드 → 세컨드 → 퍼스트 → 감독 */
+  titles: [string, string, string, string, string]
   /** 캐릭터 선택 화면 능력치 1~5 */
   stats: { power: number; speed: number; reach: number }
   hp: number
@@ -110,7 +117,7 @@ export type FighterStateName =
 
 /** 화면 연출용 이벤트 (로직 → 그래픽·사운드) */
 export type MatchEvent =
-  | { type: 'hit'; x: number; y: number; attacker: number; damage: number; combo: number; heavy: boolean; finisher: boolean; launch: boolean; moveName: string }
+  | { type: 'hit'; x: number; y: number; attacker: number; damage: number; combo: number; heavy: boolean; finisher: boolean; launch: boolean; counter: boolean; moveName: string }
   | { type: 'block'; x: number; y: number; attacker: number }
   | { type: 'whiff'; fighter: number; move: MoveId }
   | { type: 'move'; fighter: number; move: MoveId; name: string; combo: boolean; voice?: string; sfx?: string; afterimage?: boolean }

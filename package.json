@@ -8,7 +8,8 @@
     "dev": "vite --config client/vite.config.ts",
     "build": "tsc -p client/tsconfig.json --noEmit && vite build --config client/vite.config.ts",
     "preview": "vite preview --config client/vite.config.ts",
-    "test": "vitest run --root client"
+    "test": "vitest run --root client",
+    "moves": "vite-node scripts/moves.ts"
   },
   "dependencies": {
     "phaser": "3.90.0"

@@ -1,65 +1,101 @@
-// 캐릭터 선택 / 캐릭터 소개
+// 캐릭터 선택 / 캐릭터 소개 — 6명 모두 처음부터 선택 가능
+// vsai: 내 캐릭터 → CPU 상대 고르기 → 대전 / view: 캐릭터 정보 + 기술표
 import Phaser from 'phaser'
-import { CHARACTERS } from '../config/characters'
-import { animKey } from '../gfx/TextureFactory'
+import { CHARACTERS, BTN_LABEL } from '../config/characters'
+import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
 import { FH, FOOT_Y } from '../gfx/Painter'
-import { button, text, COLOR } from '../ui/widgets'
+import { button, text, COLOR, type Btn } from '../ui/widgets'
 import { sfx } from '../audio/Sfx'
+import type { CharacterData } from '../core/types'
+
+type Mode = 'vsai' | 'view'
 
 export class SelectScene extends Phaser.Scene {
-  private mode: 'vsai' | 'view' = 'vsai'
+  private mode: Mode = 'vsai'
+  private step: 'p1' | 'p2' = 'p1'
   private picked = 0
+  private p1 = 0
+  private cards: Phaser.GameObjects.Rectangle[] = []
+  private panel?: Phaser.GameObjects.Container
+  private title!: Phaser.GameObjects.Text
+  private nextBtn?: Btn
   constructor() { super('Select') }
 
-  init(data: { mode?: 'vsai' | 'view' }) { this.mode = data.mode ?? 'vsai'; this.picked = 0 }
+  init(data: { mode?: Mode }) { this.mode = data.mode ?? 'vsai'; this.step = 'p1'; this.picked = 0; this.p1 = 0 }
 
   create() {
     const W = this.scale.width
     this.add.rectangle(0, 0, W, 270, COLOR.bg).setOrigin(0)
-    text(this, W / 2, 14, this.mode === 'view' ? 'CHARACTER' : 'SELECT YOUR FIGHTER', 14, COLOR.accent)
-
-    const cards: Phaser.GameObjects.Rectangle[] = []
+    this.title = text(this, W / 2, 12, '', 14, COLOR.accent)
+    this.cards = []; this.nextBtn = undefined; this.panel = undefined
     CHARACTERS.forEach((c, i) => {
-      const x = 90 + i * 150, y = 112
-      const card = this.add.rectangle(x, y + 8, 138, 168, COLOR.panel).setStrokeStyle(2, COLOR.line)
-      cards.push(card)
-      if (c.implemented) {
-        this.add.sprite(x, y + 24, 'dp').setOrigin(0.5, FOOT_Y / FH).setScale(1.7).play(animKey('dp', 'idle'))
-      } else {
-        // 아직 없는 캐릭터: 실루엣
-        this.add.sprite(x, y + 24, 'dp', 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(1.7).setTintFill(0x0a0812)
-        text(this, x, y - 30, '🔒 PHASE 2', 11, COLOR.dim)
-      }
-      text(this, x, y + 32, `${c.name}`, 12, c.color)
-      text(this, x, y + 45, c.nameEn, 11, COLOR.dim)
-      // 능력치 막대
-      const stat = (label: string, v: number, row: number) => {
-        const yy = y + 56 + row * 12
-        text(this, x - 58, yy, label, 11, COLOR.dim, 0)
-        for (let k = 0; k < 5; k++) this.add.rectangle(x - 10 + k * 12, yy, 10, 6, k < v ? Phaser.Display.Color.HexStringToColor(c.color).color : 0x0a0812)
-      }
-      stat('공격', c.stats.power, 0); stat('속도', c.stats.speed, 1); stat('사거리', c.stats.reach, 2)
-      card.setInteractive({ useHandCursor: true }).on('pointerup', () => { if (!c.implemented) return; this.picked = i; sfx('select'); this.refresh(cards) })
+      const x = 48 + (i % 3) * 78, y = 76 + Math.floor(i / 3) * 96
+      const card = this.add.rectangle(x, y, 72, 90, COLOR.panel).setStrokeStyle(2, COLOR.line)
+      this.cards.push(card)
+      this.add.rectangle(x, y - 44, 72, 3, hex(c.color))
+      this.add.sprite(x, y + 26, c.id, 'idle_0').setOrigin(0.5, FOOT_Y / FH).setScale(1.05)
+      text(this, x, y + 36, c.name, 11, c.color)
+      card.setInteractive({ useHandCursor: true }).on('pointerup', () => { this.picked = i; sfx('select'); this.refresh() })
     })
-    this.descText = text(this, W / 2, 214, '', 11)
-    this.refresh(cards)
 
     if (this.mode === 'vsai') {
-      button(this, W / 2 + 70, 248, 120, 24, '준비 완료!', () => this.startFight(), { color: 0x6a2c91 })
-      button(this, W / 2 - 70, 248, 100, 24, '← 메뉴', () => this.scene.start('Menu'))
-    } else button(this, W / 2, 248, 120, 24, '← 메뉴', () => this.scene.start('Menu'))
-    this.input.keyboard?.once('keydown-ENTER', () => this.mode === 'vsai' && this.startFight())
+      button(this, 70, 254, 110, 22, '← 뒤로', () => this.back())
+      button(this, 192, 254, 110, 22, '랜덤', () => { this.picked = Math.floor(Math.random() * CHARACTERS.length); sfx('select'); this.refresh() })
+      this.nextBtn = button(this, 370, 254, 170, 22, '', () => this.next(), { color: 0x6a2c91 })
+    } else button(this, W / 2, 254, 140, 22, '← 메뉴', () => this.scene.start('Menu'))
+    this.refresh()
+    this.input.keyboard?.on('keydown-ENTER', () => this.mode === 'vsai' && this.next())
+    this.input.keyboard?.on('keydown-RIGHT', () => { this.picked = (this.picked + 1) % CHARACTERS.length; this.refresh() })
+    this.input.keyboard?.on('keydown-LEFT', () => { this.picked = (this.picked + CHARACTERS.length - 1) % CHARACTERS.length; this.refresh() })
   }
 
-  private descText!: Phaser.GameObjects.Text
-  private refresh(cards: Phaser.GameObjects.Rectangle[]) {
-    cards.forEach((c, i) => c.setStrokeStyle(i === this.picked ? 3 : 2, i === this.picked ? 0xffd23f : COLOR.line))
-    const c = CHARACTERS[this.picked]
-    this.descText.setText(c.implemented ? c.desc : `${c.desc} (PHASE 2에서 추가)`).setAlign('center')
+  private back() {
+    if (this.step === 'p2') { this.step = 'p1'; this.picked = this.p1; this.refresh() } else this.scene.start('Menu')
   }
 
-  private startFight() {
+  private next() {
+    sfx('confirm')
+    if (this.step === 'p1') { this.p1 = this.picked; this.step = 'p2'; this.picked = Math.floor(Math.random() * CHARACTERS.length); this.refresh(); return }
     sfx('slate')
-    this.scene.start('Fight', { p1: CHARACTERS[this.picked].id, p2: 'dp' })
+    this.scene.start('Fight', { p1: CHARACTERS[this.p1].id, p2: CHARACTERS[this.picked].id })
+  }
+
+  private refresh() {
+    const p2 = this.step === 'p2'
+    this.title.setText(this.mode === 'view' ? 'CHARACTER' : p2 ? `상대 CPU 고르기 (나: ${CHARACTERS[this.p1].name})` : 'SELECT YOUR FIGHTER')
+    this.cards.forEach((c, i) => c.setStrokeStyle(i === this.picked ? 3 : 2, i === this.picked ? (p2 ? 0xff5470 : 0xffd23f) : COLOR.line))
+    this.nextBtn?.label.setText(p2 ? '대전 시작!' : '이 캐릭터로 ▶')
+    this.drawPanel(CHARACTERS[this.picked], p2)
+  }
+
+  /** 오른쪽 정보 패널: 큰 그림, 이름, 능력치, 설명 (+ 기술표) */
+  private drawPanel(c: CharacterData, p2: boolean) {
+    this.panel?.destroy(true)
+    const L = this.add.container(0, 0)
+    this.panel = L
+    const x0 = 262
+    L.add(this.add.rectangle(x0 - 6, 26, 220, 214, COLOR.panel).setOrigin(0).setStrokeStyle(2, hex(c.color)))
+    const skin = p2 && c.id === CHARACTERS[this.p1].id ? `${c.id}_alt` : c.id
+    ensureFighterTexture(this, skin)
+    const spr = this.add.sprite(x0 + 32, 104, skin).setOrigin(0.5, FOOT_Y / FH).setScale(1.1).play(animKey(skin, 'idle'))
+    if (p2) spr.setFlipX(true)
+    L.add(spr)
+    L.add(text(this, x0 + 74, 36, c.name, 14, c.color, 0))
+    L.add(text(this, x0 + 74, 51, `${c.nameEn} · ${c.dept}`, 11, COLOR.dim, 0))
+    const stat = (label: string, v: number, row: number) => {
+      const yy = 65 + row * 12
+      L.add(text(this, x0 + 74, yy, label, 11, COLOR.dim, 0))
+      for (let k = 0; k < 5; k++) L.add(this.add.rectangle(x0 + 122 + k * 13, yy, 11, 6, k < v ? hex(c.color) : 0x0a0812))
+    }
+    stat('공격', c.stats.power, 0); stat('속도', c.stats.speed, 1); stat('사거리', c.stats.reach, 2)
+    L.add(text(this, x0 + 74, 101, `체력 ${c.hp}`, 11, COLOR.dim, 0))
+    L.add(text(this, x0 + 104, 114, c.desc, 11, COLOR.ink).setWordWrapWidth(206).setAlign('center'))
+    // 기술표: 특수·필살 + 콤보 6개 (한 줄씩)
+    const m = c.moves
+    L.add(text(this, x0 + 104, 136, `특 ${m.special1?.name} · ↓특 ${m.special2?.name}\n필살 ${m.super?.name}`, 11, COLOR.accent).setAlign('center').setLineSpacing(0))
+    const combos = c.combos.map((k) => `${k.seq.map((t) => BTN_LABEL[t]).join('')}  ${m[k.move]?.name}`)
+    L.add(text(this, x0 + 2, 152, combos.join('\n'), 11, COLOR.ink, 0).setOrigin(0, 0).setLineSpacing(-1))
   }
 }
+
+const hex = (c: string) => Phaser.Display.Color.HexStringToColor(c).color

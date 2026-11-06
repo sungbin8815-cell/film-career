@@ -133,6 +133,32 @@ export const ANIMS: Record<string, AnimDef> = {
     ], fps: 10, loop: false,
   },
 
+  // ───── 여러 캐릭터 공용 동작 ─────
+  // 긴 장비로 앞 찌르기 (붐 마이크·메가폰·케이블)
+  poke: {
+    frames: [
+      P({ head: [31, 17], sh: [30, 31], elF: [31, 34], hdF: [30, 33], prop: 'tripodFront', face: 'focus', ftB: [22, 58], knB: [26, 50] }),
+      P({ head: [38, 18], sh: [36, 31], elF: [42, 32], hdF: [46, 32], elB: [37, 33], hdB: [41, 33], prop: 'tripodPoke', face: 'shout', knF: [40, 50], ftF: [45, 58], knB: [27, 50], ftB: [21, 58], smear: [[40, 30], [56, 30], [63, 30]] }),
+      P({ head: [35, 17], sh: [33, 31], elF: [38, 34], hdF: [41, 34], prop: 'tripodFront', face: 'normal', ftF: [40, 58] }),
+    ], fps: 12, loop: false,
+  },
+  // 위로 던지기 (대본·전구·페인트·파우더)
+  throw: {
+    frames: [
+      P({ head: [30, 18], sh: [29, 31], elF: [25, 25], hdF: [22, 20], elB: [33, 34], hdB: [37, 35], prop: 'none', face: 'focus', ftB: [21, 58], knB: [25, 50] }),
+      P({ head: [37, 17], sh: [35, 30], elF: [41, 25], hdF: [46, 22], elB: [29, 34], hdB: [25, 37], prop: 'none', face: 'shout', knF: [39, 50], ftF: [43, 58], smear: [[22, 14], [36, 8], [50, 16]] }),
+      P({ head: [36, 18], sh: [34, 31], elF: [40, 34], hdF: [44, 38], prop: 'none', face: 'happy', ftF: [41, 58] }),
+    ], fps: 10, loop: false,
+  },
+  // 온몸으로 터뜨리기 (음파·섬광·풀파워)
+  burst: {
+    frames: [
+      P({ head: [33, 22], sh: [32, 35], hip: [31, 46], knF: [37, 51], ftF: [39, 58], knB: [25, 52], ftB: [23, 58], elF: [35, 40], hdF: [33, 43], elB: [29, 40], hdB: [31, 43], prop: 'none', face: 'focus' }),
+      all(P({ head: [34, 15], sh: [33, 29], elF: [40, 24], hdF: [46, 19], elB: [26, 24], hdB: [20, 19], prop: 'fxFront', face: 'shout', knF: [37, 49], ftF: [40, 57], knB: [26, 49], ftB: [23, 57] }), 0, -1),
+      P({ elF: [38, 31], hdF: [42, 30], elB: [27, 31], hdB: [24, 30], prop: 'none', face: 'happy' }),
+    ], fps: 10, loop: false,
+  },
+
   // ───── 피격·방어·결과 ─────
   hit: {
     frames: [
