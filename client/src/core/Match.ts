@@ -46,6 +46,10 @@ export class Match {
   events: MatchEvent[] = []
   frame = 0
   world: TraitWorld
+  /** 궁극기 연출 중: 첫 타가 맞으면 모두 멈추고 피해가 연출 박자에 맞춰 들어감 */
+  cine: { att: number; t: number; dur: number; total: number; dealt: number; char: string; name: string } | null = null
+  /** 궁극기를 쓴 기술 (헛침 판정용) */
+  private ultSeen: [string | null, string | null] = [null, null]
   /** 떠 있는 발판 (스테이지별) */
   platforms: { x: number; y: number; w: number }[] = []
 
@@ -163,6 +167,8 @@ export class Match {
       return this.events
     }
 
+    if (this.cine) { this.stepCine(); for (const [i, f] of this.fighters.entries()) f.observe(inputs[i], this.fighters[1 - i]); return this.events }
+
     const canAct = this.phase === 'fight'
     if (this.phase === 'intro' && this.phaseFrame === 70) this.events.push({ type: 'fight' })
     if (this.phase === 'intro' && this.phaseFrame >= 80) this.setPhase('fight')
@@ -182,6 +188,15 @@ export class Match {
       // 투사체는 판정 프레임에 (수정된 기술 기준: 렌즈·크리티컬 등 반영)
       if (f.pendingShot) { this.spawnProjectile(f, f.pendingShot.projectile!, f.pendingShot.name); f.pendingShot = null }
       if (f.pendingEffect) { this.world.activate(f, f.pendingEffect.effect, f.pendingEffect.move); f.pendingEffect = null }
+    }
+    // 궁극기 헛침: 판정이 끝날 때까지 아무것도 못 맞혔으면 짧게 끝
+    for (const f of this.fighters) {
+      const m = f.move
+      const key = m?.ult && f.state === 'attack' ? `${m.id}@${f.frame - f.moveFrame}` : null
+      if (key && this.ultSeen[f.idx] !== key && f.moveFrame >= m!.startup + m!.active && !f.hitConfirmed) {
+        this.ultSeen[f.idx] = key
+        this.events.push({ type: 'cine', fighter: f.idx, char: this.cineChar(f), phase: 'whiff' })
+      }
     }
     const prevX: [number, number] = [a.x, b.x]
     for (const f of this.fighters) f.floorY = this.world.floorAt(f)
@@ -278,7 +293,7 @@ export class Match {
     this.resolve(att, def, { chip: 0, blockstun: 0, meterGain: 8, ...d, id: 'trait' }, opts.fromX ?? att.x, opts.unblockable)
   }
 
-  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce'>> & { id?: string; blind?: number }, fromX: number, unblockable = false) {
+  private resolve(att: Fighter, def: Fighter, d: Pick<MoveData, 'damage' | 'chip' | 'hitstun' | 'blockstun' | 'kbX' | 'kbY' | 'meterGain' | 'name'> & Partial<Pick<MoveData, 'finisher' | 'lastHitKbY' | 'multiHit' | 'low' | 'overhead' | 'expose' | 'pull' | 'crit' | 'sfx' | 'wallBounce' | 'groundBounce' | 'ult'>> & { id?: string; blind?: number }, fromX: number, unblockable = false) {
     const dir = def.x >= fromX ? 1 : -1
     const hx = (att.x + def.x) / 2
     const hy = def.y + 34
@@ -300,6 +315,8 @@ export class Match {
       this.events.push({ type: 'block', x: hx, y: hy, attacker: att.idx })
       return
     }
+    // 궁극기 첫 타 명중 → 전용 연출
+    if (d.ult && !this.cine) { this.startCine(att, def, d.ult, d.name); return }
     // 카운터: 상대가 기술을 내는 도중(판정 나오기 전)에 맞히면 더 아프고 더 오래 굳음
     const counter = def.state === 'attack' && !!def.move && def.moveFrame < def.move.startup
     const scale = Math.max(0.4, Math.pow(0.88, att.combo)) * (counter ? 1.25 : 1) * (d.id ? att.dmgMul : 1)
@@ -345,6 +362,58 @@ export class Match {
     this.hitstop = Math.round(Math.min(16, 4 + d.damage / 11)) + (finisher ? 4 : 0) + (counter ? 5 : 0) + (d.crit ? 8 : 0)
     this.events.push({ type: 'hit', x: hx, y: hy, attacker: att.idx, damage: dmg, combo: att.combo, heavy: heavy || !!d.crit, finisher: finisher || !!d.crit, launch, counter, crit: !!d.crit, moveName: d.name, sfx: d.sfx })
     if (def.hp <= 0) this.ko(att.idx)
+  }
+
+  /** 연출 종류: 배우가 따라 한 궁극기는 "배우:원래 캐릭터" */
+  private cineChar(f: Fighter) { return f.move?.copyOf ? `actor:${f.move.copyOf}` : f.char.id }
+
+  private startCine(att: Fighter, def: Fighter, ult: NonNullable<MoveData['ult']>, name: string) {
+    const total = Math.round(ult.total * att.dmgMul)
+    this.cine = { att: att.idx, t: 0, dur: ult.cine, total, dealt: 0, char: this.cineChar(att), name }
+    att.move = null; att.setState('idle'); att.vx = 0
+    def.move = null; def.setState('hit'); def.stun = 999; def.vx = 0; def.vy = 0
+    def.y = Math.max(def.y, def.floorY)
+    this.projectiles = this.projectiles.filter((p) => p.owner === att.idx)
+    this.events.push({ type: 'cine', fighter: att.idx, char: this.cine.char, phase: 'start', value: ult.cine })
+  }
+
+  /** 연출 진행: 20%~85% 사이 6박자로 피해, 끝에 날려 보냄 */
+  private stepCine() {
+    const c = this.cine!
+    const att = this.fighters[c.att], def = this.fighters[1 - c.att]
+    c.t++
+    const beats = 6
+    const first = Math.round(c.dur * 0.2), last = Math.round(c.dur * 0.85)
+    const step = (last - first) / (beats - 1)
+    const beat = Math.round((c.t - first) / step)
+    if (c.t >= first && c.t <= last && Math.abs(c.t - (first + beat * step)) < 0.5) {
+      const left = c.total - c.dealt
+      const chunk = beat >= beats - 1 ? left : Math.round(c.total / beats)
+      const dmg = this.world.absorb(def, Math.min(left, chunk))
+      c.dealt += chunk
+      def.hp = Math.max(1, def.hp - dmg)
+      this.world.onDamaged(def, dmg, false)
+      att.combo++
+      this.events.push({ type: 'hit', x: def.x, y: def.y + 34, attacker: att.idx, damage: dmg, combo: att.combo, heavy: true, finisher: beat >= beats - 1, launch: false, counter: false, moveName: c.name })
+      this.events.push({ type: 'cine', fighter: att.idx, char: c.char, phase: 'hit', value: beat + 1 })
+    }
+    if (c.t >= c.dur) {
+      this.cine = null
+      // 마지막 한 방: 피해의 마지막 1은 여기서 (연출 중에는 쓰러지지 않음)
+      const ko = def.hp <= 1 || def.hp <= c.total * 0.02
+      if (ko) def.hp = 0
+      const dir = def.x >= att.x ? 1 : -1
+      def.setState('knockback'); def.stun = 0; def.vy = 7.5; def.vx = dir * 5; def.y = Math.max(def.y, def.floorY + 0.01)
+      def.wallArm = true; def.juggles = 3
+      att.meter = Math.min(METER_MAX, att.meter + 10)
+      // 캐릭터별 여운: 연출 리테이크는 잠깐 멈춤, 분장은 출혈, 조명은 노출 MAX
+      const base = c.char.replace(/^actor:/, '')
+      if (base === 'director') def.frozen = Math.max(def.frozen, 40)
+      if (base === 'makeup') def.bleed = Math.max(def.bleed, 240)
+      this.events.push({ type: 'cine', fighter: att.idx, char: c.char, phase: 'end', value: c.total })
+      this.hitstop = 12
+      if (ko) this.ko(att.idx, true)
+    }
   }
 
   spawnProjectile(f: Fighter, p: ProjectileSpec, name: string) {
@@ -394,7 +463,7 @@ export class Match {
     this.projectiles = this.projectiles.filter((p) => !p.dead)
   }
 
-  private ko(winnerIdx: number) {
+  private ko(winnerIdx: number, ult = false) {
     if (this.phase !== 'fight') return
     // 태그 모드: 쓰러진 쪽 동료가 남아 있으면 잠시 뒤 교대해서 계속
     const lt = this.teams[1 - winnerIdx]
@@ -407,8 +476,8 @@ export class Match {
     }
     this.roundWinner = winnerIdx
     this.wins[winnerIdx]++
-    this.events.push({ type: 'ko', winner: winnerIdx })
-    this.hitstop = 30
+    this.events.push({ type: 'ko', winner: winnerIdx, ult })
+    this.hitstop = ult ? 50 : 30
     this.setPhase('ko')
   }
 

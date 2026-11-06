@@ -8,6 +8,7 @@ import { emptyInput, FPS, STAGE_W, type MatchEvent } from '../core/types'
 import { getCharacter, atRank, RANK_MUL, howTo, moveList } from '../config/characters'
 import { STAGES, BOSS_MUL, titleOf } from '../config/stages'
 import { arenaFor } from '../config/arenas'
+import { UltCinema } from './UltCine'
 import { TRAIT_INFO, LENSES, cdKey } from '../core/Traits'
 import type { Difficulty } from '../core/AI'
 import { animKey, ensureFighterTexture } from '../gfx/TextureFactory'
@@ -49,6 +50,7 @@ export class FightScene extends Phaser.Scene {
   private camKick = { x: 0, y: 0 }
   private worldG!: Phaser.GameObjects.Graphics
   private vfxG!: Phaser.GameObjects.Graphics
+  private cinema?: UltCinema
   private tags: Phaser.GameObjects.Text[] = []
   private koSpin = [false, false]
   private assistSprites: Phaser.GameObjects.Sprite[] = []
@@ -364,6 +366,64 @@ export class FightScene extends Phaser.Scene {
   }
 
   /** 필살기 컷인: 레터박스 + 캐릭터 + 이름 */
+  /** 궁극기 연출: 시작(첫 타 명중) → 박자마다 타격 → 끝(날려 보냄) / 헛침은 짧게 */
+  private onCine(e: Extract<MatchEvent, { type: 'cine' }>) {
+    const att = this.match.fighters[e.fighter], def = this.match.fighters[1 - e.fighter]
+    switch (e.phase) {
+      case 'start': {
+        this.cinema?.end(() => undefined)
+        const ak = this.texKeys[e.fighter], dk = this.texKeys[1 - e.fighter]
+        const sup = animsFor(att.char.id).super
+        this.cinema = new UltCinema(this, (o) => this.ui(o), e.char, ak, `super_${Math.min(1, sup.frames.length - 1)}`, dk, 'hit_0', this.match.cine?.name ?? '', e.fighter, e.value ?? 150)
+        this.controls.show(false)
+        sfx('super')
+        break
+      }
+      case 'hit': this.cinema?.hit(e.value ?? 1); sfx(e.value && e.value >= 6 ? 'hitFinish' : 'hitHeavy'); navigator.vibrate?.(e.value && e.value >= 6 ? 60 : 20); break
+      case 'end': {
+        const c = this.cinema
+        this.cinema = undefined
+        c?.end(() => undefined)
+        if (this.match.phase === 'fight' || this.match.phase === 'ko') this.controls.show(true)
+        this.impact(def.x, def.y + 34, 3, 0xffd23f, e.value, def.x >= att.x ? 1 : -1)
+        this.cameras.main.shake(300, 0.02)
+        this.zoomKick = Math.max(this.zoomKick, 0.25)
+        this.bigText(`${e.value ?? ''} DAMAGE!`, '#ffd23f', 22, 700)
+        break
+      }
+      case 'whiff':
+        this.popText(att.x, 90, 'NG… 헛스윙!', '#9ca3af')
+        this.onomato(att.x, 60, '휙—', '#9ca3af')
+        break
+    }
+  }
+
+  /** 궁극기로 KO: 필름이 타들어 가는 특별 연출 */
+  private ultKo(winner: number) {
+    const f = this.match.fighters[winner]
+    this.slow = Math.max(this.slow, 90)
+    this.koSpin[1 - winner] = true
+    this.cameras.main.flash(300, 255, 240, 200)
+    this.zoomKick = Math.max(this.zoomKick, 0.4)
+    sfx('ko'); sfx('shutter')
+    const g = this.ui(this.add.graphics().setDepth(95))
+    let k = 0
+    const burn = this.time.addEvent({ delay: 30, repeat: 40, callback: () => {
+      k++
+      g.clear()
+      for (let i = 0; i < 18; i++) {
+        const r = k * 3 + ((i * 37) % 20)
+        g.fillStyle(i % 2 ? 0xff9f43 : 0x7c2d12, 0.8).fillCircle((i * 61) % 480, i % 3 ? 0 : 270, r)
+        g.fillStyle(0x0a0812, 0.9).fillCircle((i * 61) % 480, i % 3 ? -6 : 276, r * 0.7)
+      }
+    } })
+    const t = this.ui(this.add.text(240, 120, 'FINAL CUT!!', { fontFamily: FONT, fontSize: '34px', color: '#ffd23f', stroke: '#0a0812', strokeThickness: 6, fontStyle: 'bold', resolution: 1 }).setOrigin(0.5).setDepth(96).setScale(3))
+    const s = this.ui(this.add.text(240, 152, `${f.char.name} — 궁극기 K.O.`, { fontFamily: FONT, fontSize: '12px', color: '#fff8e7', stroke: '#0a0812', strokeThickness: 3, resolution: 1 }).setOrigin(0.5).setDepth(96).setAlpha(0))
+    this.tweens.add({ targets: t, scale: 1, duration: 260, ease: 'Back.out' })
+    this.tweens.add({ targets: s, alpha: 1, delay: 300, duration: 200 })
+    this.tweens.add({ targets: [t, s, g], alpha: 0, delay: 1700, duration: 400, onComplete: () => { burn.remove(); t.destroy(); s.destroy(); g.destroy() } })
+  }
+
   private superCutIn(fighter: number) {
     const f = this.match.fighters[fighter]
     const key = this.texKeys[fighter]
@@ -742,8 +802,10 @@ export class FightScene extends Phaser.Scene {
           break
         }
         case 'super': this.superCutIn(e.fighter); sfx('shutter'); sfx('super'); break
+        case 'cine': this.onCine(e); break
         case 'ko': {
-          this.bigText('K.O.!', '#ff5470', 36, 1100); sfx('ko'); this.cameras.main.flash(200, 255, 255, 255)
+          if (e.ult) this.ultKo(e.winner)
+          else { this.bigText('K.O.!', '#ff5470', 36, 1100); sfx('ko'); this.cameras.main.flash(200, 255, 255, 255) }
           // 진 쪽은 빙글빙글 날아감 (만화식 KO)
           this.koSpin[1 - e.winner] = true
           this.slow = Math.max(this.slow, 40)
@@ -932,6 +994,7 @@ export class FightScene extends Phaser.Scene {
       if (t.assist) { spr.setVisible(true); this.drawFighter(t.assist, i, spr); spr.setAlpha(0.92) }
       else spr.setVisible(false)
     })
+    if (this.cinema && this.match.cine) this.cinema.update(this.match.cine.t)
     this.followCamera()
     this.drawProjectiles()
     this.drawTraits()

@@ -295,3 +295,36 @@ describe('넓은 맵·발판·튕김', () => {
     expect(shoot((i) => (i === 10 || i === 12 ? { left: true } : {}))).toBe(0)
   })
 })
+
+describe('궁극기 연출', () => {
+  const ultRun = (gap: number, hpLeft?: number) => {
+    const m = new Match(DP, DP); toFight(m)
+    const [a, b] = m.fighters
+    a.x = b.x - gap; a.meter = 100
+    if (hpLeft) b.hp = hpLeft
+    const ev: string[] = []
+    let froze = false
+    for (let i = 0; i < 260; i++) {
+      for (const e of m.step([i === 0 ? press('super') : idle(), idle()])) {
+        if (e.type === 'cine') ev.push(e.phase)
+        if (e.type === 'ko') ev.push(e.ult ? 'ko-ult' : 'ko')
+      }
+      if (m.cine && m.cine.t > 30) froze = froze || m.fighters[1].state === 'hit'
+    }
+    return { m, ev, froze }
+  }
+  it('첫 타가 맞으면 전용 연출이 돌고, 박자마다 피해가 들어가 총 피해를 준다', () => {
+    const { m, ev, froze } = ultRun(30)
+    expect(ev).toEqual(['start', 'hit', 'hit', 'hit', 'hit', 'hit', 'hit', 'end'])
+    expect(froze).toBe(true)
+    expect(DP.hp - m.fighters[1].hp).toBeGreaterThanOrEqual(Math.round(DP.moves.R!.ult!.total * (DP.atk ?? 1)) - 2)
+  })
+  it('헛치면 연출 없이 짧게 끝난다', () => {
+    const { ev } = ultRun(400)
+    expect(ev).toEqual(['whiff'])
+  })
+  it('궁극기로 쓰러뜨리면 특별 KO', () => {
+    const { ev } = ultRun(30, 100)
+    expect(ev).toContain('ko-ult')
+  })
+})

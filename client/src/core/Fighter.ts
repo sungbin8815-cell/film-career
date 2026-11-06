@@ -291,6 +291,8 @@ export class Fighter {
     this.move = this.world ? this.world.modifyMove(this, m) : m
     this.world?.onMoveStart(this, id)
     this.armorLeft = this.move.armor ?? 0
+    // 궁극기: 발동 전까지 무적 (끊기지 않고 연출로 이어짐)
+    if (m.ult) this.invuln = Math.max(this.invuln, m.startup + 2)
     this.hitWallThisMove = false
     this.moveFrame = 0
     this.hitsThisMove = 0
